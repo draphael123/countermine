@@ -111,9 +111,12 @@ export function draw(ctx, st, view) {
   for (let y = 0; y < GH; y++) {
     for (let x = 0; x < GW; x++) {
       const tile = st.grid[y][x];
+      const { px, py } = tileToPx(x, y);
+      if (tile.t === T.FLOOR && tile.stain != null) {
+        ctx.drawImage(decalTile(TILE, 'blood', tile.stain), px, py);
+      }
       if (tile.t !== T.FLOOR || tile.rubbleSeed % 6 !== 0) continue;
       const kind = decals[(tile.rubbleSeed / 6 | 0) % decals.length];
-      const { px, py } = tileToPx(x, y);
       ctx.drawImage(decalTile(TILE, kind, tile.rubbleSeed), px, py);
     }
   }
@@ -402,11 +405,14 @@ function drawUnit(ctx, st, u, view, t) {
   if (selected) {
     ctx.save();
     ctx.strokeStyle = '#ffd9a0';
-    ctx.lineWidth = 2.5;
-    ctx.globalAlpha = 0.6 + Math.sin(t / 200) * 0.3;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([7, 6]);
+    ctx.lineDashOffset = -t / 28;
+    ctx.globalAlpha = 0.85;
     ctx.beginPath();
     ctx.ellipse(cx, cy - 5, 19, 8.5, 0, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.setLineDash([]);
     ctx.restore();
   }
 
@@ -428,12 +434,21 @@ function drawUnit(ctx, st, u, view, t) {
   }
   ctx.restore();
 
-  // health bar
+  // health bar with damage ghosting: the pale chunk is what the last hit took
   const barW = u.boss ? 44 : 30;
   const bx = cx - barW / 2, by = cy - (u.boss ? 78 : 60);
   ctx.fillStyle = 'rgba(0,0,0,0.75)';
   ctx.fillRect(bx - 1, by - 1, barW + 2, 6);
+  if (u.hpShown == null) u.hpShown = u.hp;
+  if (u.hpShown < u.hp) u.hpShown = u.hp;               // heals snap up
+  else if (u.hpShown > u.hp) u.hpShown += (u.hp - u.hpShown) * 0.10; // damage drains
+  if (u.hpShown - u.hp < 0.3) u.hpShown = u.hp;
   const frac = Math.max(0, u.hp / u.maxHp);
+  const ghost = Math.max(0, u.hpShown / u.maxHp);
+  if (ghost > frac) {
+    ctx.fillStyle = 'rgba(232,164,140,0.85)';
+    ctx.fillRect(bx + barW * frac, by, barW * (ghost - frac), 4);
+  }
   ctx.fillStyle = u.side === 'player'
     ? (frac > 0.5 ? '#7f9b52' : frac > 0.25 ? '#c99a3e' : '#b8483a')
     : (frac > 0.5 ? '#9a4a42' : '#c0603a');
@@ -486,7 +501,16 @@ function drawFx(ctx, st) {
       if (life < 1) {
         ctx.save();
         ctx.globalAlpha = 1 - life;
-        ctx.font = 'bold 17px "Courier New", monospace';
+        const big = f.amount >= 10;
+        ctx.font = 'bold ' + (big ? 22 : 16) + 'px "Courier New", monospace';
+        if (f.t < 5) { // impact chips on the first frames
+          ctx.fillStyle = f.side === 'player' ? 'rgba(200,80,60,0.8)' : 'rgba(220,200,170,0.8)';
+          for (let ci = 0; ci < 4; ci++) {
+            const a = ci * 1.57 + f.x * 0.7;
+            const rr = 6 + f.t * 2.6;
+            ctx.fillRect(px + TILE / 2 + Math.cos(a) * rr, py + TILE / 2 - 6 + Math.sin(a) * rr, 2.5, 2.5);
+          }
+        }
         ctx.textAlign = 'center';
         ctx.lineWidth = 3;
         ctx.strokeStyle = '#000';
@@ -494,6 +518,22 @@ function drawFx(ctx, st) {
         ctx.strokeText(s, px + TILE / 2, py + 22 - life * 26);
         ctx.fillStyle = f.side === 'player' ? '#ff8a7a' : '#ffe0a0';
         ctx.fillText(s, px + TILE / 2, py + 22 - life * 26);
+        ctx.restore();
+        keep.push(f);
+      }
+    } else if (f.kind === 'trace') {
+      const life = f.t / 13;
+      if (life < 1) {
+        const a = tileToPx(f.x1, f.y1), b = tileToPx(f.x2, f.y2);
+        ctx.save();
+        ctx.globalAlpha = (1 - life) * 0.9;
+        ctx.strokeStyle = f.col || '#d8c9a3';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        const head = Math.min(1, life * 2.4);
+        ctx.moveTo(a.px + TILE / 2 + (b.px - a.px) * Math.max(0, head - 0.35), a.py + TILE / 2 - 14 + (b.py - a.py) * Math.max(0, head - 0.35));
+        ctx.lineTo(a.px + TILE / 2 + (b.px - a.px) * head, a.py + TILE / 2 - 14 + (b.py - a.py) * head);
+        ctx.stroke();
         ctx.restore();
         keep.push(f);
       }

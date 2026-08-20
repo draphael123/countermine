@@ -427,8 +427,9 @@ export function applyDamage(st, target, amount, source, opts = {}) {
     if (t.bar.hp <= 0) { t.bar = null; logLine(st, 'The barricade comes apart.'); }
     return amount;
   }
-  // Martyr redirect
-  const m = getStatus(target, 'martyred');
+  // Martyr redirect. noRedirect breaks the cycle when two units protect each
+  // other -- without it any damage to either is infinite recursion.
+  const m = opts.noRedirect ? null : getStatus(target, 'martyred');
   if (m && m.protector) {
     const p = st.units.find(u => u.uid === m.protector && u.alive);
     if (p && p !== target) {
@@ -449,12 +450,14 @@ export function killUnit(st, target, source) {
   if (!target.alive) return;
   target.alive = false;
   target.hp = 0;
+  const gt = tileAt(st, target.x, target.y);
+  if (gt && gt.t === T.FLOOR) gt.stain = (target.uid * 37 + 11) % 997;
   st.fx.push({ kind: 'death', x: target.x, y: target.y, t: 0, side: target.side });
   st.fx.push({ kind: 'shake', mag: 5, t: 0 });
   logLine(st, target.name + ' falls.');
   if (source && source.side !== target.side) {
     source.kills++;
-    if (st.relics.has('whistle') && source.side === 'player') source.movBonus = 2;
+    if (st.relics.has('whistle') && source.side === 'player') addStatus(source, 'hasted', 2, 0);
   }
   if (target.side === 'player' && st.relics.has('reliquary') && !st.reliquaryUsed) {
     st.reliquaryUsed = true;
@@ -511,6 +514,9 @@ export function moveUnit(st, u, tx, ty) {
 export function basicAttack(st, u, target) {
   if (u.usesLoad && !u.loaded) return { ok: false, why: 'not loaded' };
   if (u.usesLoad) st.fx.push({ kind: 'snd', s: 'bow' });
+  if (u.range > 1 && Math.abs(u.x - target.x) + Math.abs(u.y - target.y) > 1) {
+    st.fx.push({ kind: 'trace', x1: u.x, y1: u.y, x2: target.x, y2: target.y, col: '#d8c9a3', t: 0 });
+  }
   animLunge(u, target.x, target.y);
   const prof = damageProfile(st, u, target, {});
   const roll = st.rng.int(prof.min, prof.max);
@@ -543,10 +549,11 @@ export function finishAction(st, u) {
 }
 
 export function abilityReady(u, aid) {
-  if ((u.cds[aid] || 0) > 0) return false;
   const ab = ABILITIES[aid];
+  if (!ab) return false; // the captain has one ability; hotkey [2] asks for a second
+  if ((u.cds[aid] || 0) > 0) return false;
   if (ab.charges && (u.charges[aid] || 0) <= 0) return false;
-  if (ab.needsLoad && u.usesLoad && !u.loaded) return false;
+  if (ab.needsLoad && u.usesLoad && !u.loaded && !u.freeShot) return false;
   return true;
 }
 
@@ -609,6 +616,10 @@ export function resolveAbility(st, u, aid, ab, tx, ty, dir) {
     case 'attack': {
       const tgt = target || (tileAt(st, tx, ty)?.bar ? { structure: true, x: tx, y: ty } : null);
       if (!tgt) return;
+      if ((ab.range || 1) > 1 && Math.abs(u.x - tx) + Math.abs(u.y - ty) > 1) {
+        st.fx.push({ kind: 'trace', x1: u.x, y1: u.y, x2: tx, y2: ty,
+          col: ab.status === 'burning' ? '#e08a3c' : '#d8c9a3', t: 0 });
+      }
       animLunge(u, tx, ty);
       const prof = damageProfile(st, u, tgt, { dmg: ab.dmg, pierce: ab.pierce });
       const roll = st.rng.int(prof.min, prof.max);
@@ -1086,7 +1097,12 @@ function fireWindup(st, u) {
     }
     const t = tileAt(st, p.x, p.y);
     if (t && t.bar) t.bar = null;
-    if (aid === 'e_collapse' && t && t.t === T.FLOOR && st.rng.chance(0.25)) t.t = T.WALL;
+    if (aid === 'e_collapse' && t && t.t === T.FLOOR && !occupant(st, p.x, p.y) && st.rng.chance(0.25)) {
+      t.t = T.WALL;
+      const reach = floodOpen(st.grid);
+      const stranded = st.units.some(x => x.alive && !reach[x.y][x.x]);
+      if (stranded) t.t = T.FLOOR; // the roof holds rather than sealing anyone in
+    }
   }
 }
 

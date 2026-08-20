@@ -75,6 +75,7 @@ button:hover:not(:disabled) {
 }
 button:hover:not(:disabled)::before, button:hover:not(:disabled)::after { border-color: var(--torch); }
 button:disabled { opacity: .3; cursor: default; }
+button:active:not(:disabled) { transform: translateY(1px); }
 button.primary {
   background: linear-gradient(#3a2413, #241708);
   border-color: var(--torch-d); color: #f2dcbc;

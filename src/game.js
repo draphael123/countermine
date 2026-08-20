@@ -214,6 +214,9 @@ function openMap() {
   saveRun();
   showScreen('mapScreen');
   const f = FLOORS[run.floorIdx];
+  $('mapScreen').style.backgroundImage =
+    'radial-gradient(ellipse 85% 55% at 50% 0%, ' + f.palette.accent + '22, transparent 62%),' +
+    'linear-gradient(180deg, #0d0b09, #070605)';
   $('floorName').textContent = 'FLOOR ' + f.n + ' — ' + f.name;
   $('floorSub').textContent = f.sub;
   $('goldNum').textContent = run.gold;
@@ -380,6 +383,7 @@ function resumeRun() {
 }
 
 function advanceFrom(node) {
+  aftermath = null;
   node.done = true;
   run.map.at = node.id;
   run.map.reachable = node.links.slice();
@@ -609,6 +613,7 @@ function afterAction(u) {
 }
 
 function armAttack() {
+  if (!st || st.phase !== 'player') return;
   const u = unitByUid(view.selected);
   if (!u || u.acted) return;
   if (u.usesLoad && !u.loaded && !u.freeShot) return;
@@ -620,6 +625,7 @@ function armAttack() {
 }
 
 function armAbility(aid) {
+  if (!aid || !st || st.phase !== 'player') return;
   const u = unitByUid(view.selected);
   if (!u || u.acted || !E.abilityReady(u, aid)) return;
   const ab = ABILITIES[aid];
@@ -714,7 +720,7 @@ function syncUI() {
     });
     if (u.usesLoad) mk('Reload [R]', 'Spend the action winding the bow.', !acted && !u.loaded, false, () => { E.reload(st, u); afterAction(u); });
     if (u.moved && !u.acted) mk('Take it back [U]', 'Undo the move.', true, false, () => {
-      u.x = u.startX; u.y = u.startY; u.moved = false; select(u.uid);
+      u.x = u.startX; u.y = u.startY; u.moved = false; u.anim = null; u.lunge = null; select(u.uid);
     });
     mk('Hold [W]', 'End this soldier’s turn.', !acted, false, () => { E.wait(st, u); afterAction(u); });
   }
@@ -728,6 +734,7 @@ function syncUI() {
     : st.phase === 'player' ? 'Round ' + st.round + ' · your move'
       : st.phase === 'enemy' ? 'Round ' + st.round + ' · they move' : '';
   $('phaseTag').style.color = st.phase === 'enemy' ? '#b8483a' : '#8b8072';
+  cv.style.cursor = (mode === 'attack' || mode === 'ability') ? 'crosshair' : '';
   $('endBtn').textContent = st.phase === 'deploy' ? 'Begin' : 'End Turn';
   $('endBtn').disabled = st.phase === 'enemy';
   $('threatBtn').style.borderColor = view.threat ? '#c2703a' : '';
@@ -794,8 +801,11 @@ function endBattle() {
   screenAftermath(gold, dead);
 }
 
+let aftermath = null; // survives Never Mind round-trips
+
 function screenAftermath(gold, dead) {
   showScreen('modal');
+  if (gold === undefined && aftermath) { gold = aftermath.gold; dead = aftermath.dead; }
   const isBoss = pendingNode.type === 'boss';
   const full = run.party.length >= 4;
   $('mEyebrow').textContent = full
@@ -812,15 +822,21 @@ function screenAftermath(gold, dead) {
   $('mLede').innerHTML = lede;
 
   // survivors offering to join
-  const shuffled = run.rng.shuffle(meta.classes.slice());
-  const offers = [];
-  for (let i = 0; i < 3; i++) {
-    const defId = shuffled[i % shuffled.length];
-    const c = CLASSES[defId];
-    offers.push({
-      defId, name: run.rng.pick(NAMES),
-      hp: Math.max(4, Math.round(c.hp * (run.rng.int(55, 100) / 100))),
-    });
+  let offers;
+  if (aftermath && aftermath.node === pendingNode) {
+    offers = aftermath.offers;
+  } else {
+    const shuffled = run.rng.shuffle(meta.classes.slice());
+    offers = [];
+    for (let i = 0; i < 3; i++) {
+      const defId = shuffled[i % shuffled.length];
+      const c = CLASSES[defId];
+      offers.push({
+        defId, name: run.rng.pick(NAMES),
+        hp: Math.max(4, Math.round(c.hp * (run.rng.int(55, 100) / 100))),
+      });
+    }
+    aftermath = { node: pendingNode, gold, dead, offers };
   }
 
   const box = $('mChoices');
@@ -869,11 +885,13 @@ function chooseWhoToLeave(offer) {
   box.innerHTML = '';
   for (const p of run.party) {
     const pc = classOf(p);
+    const isCap = p.defId === 'captain';
     const d = document.createElement('div');
-    d.className = 'choice';
-    d.innerHTML = '<h3>' + p.name + '</h3><div class="role">' + pc.name + '</div>' +
-      '<div class="stats mono">' + p.hp + '/' + pc.hp + ' hp · ' + p.kills + ' kills</div>' +
-      '<div class="blurb">Leaving them here ends them as surely as a blade.</div>';
+    d.className = 'choice' + (isCap ? ' locked' : '');
+    d.innerHTML = '<h3>' + p.name + '</h3><div class="role">' + pc.name + (isCap ? ' · you' : '') + '</div>' +
+      '<div class="stats mono">' + p.hp + '/' + p.maxHp + ' hp · ' + p.kills + ' kills</div>' +
+      '<div class="blurb">' + (isCap ? 'You signed for the company. You do not get to stay behind.' : 'Leaving them here ends them as surely as a blade.') + '</div>';
+    if (isCap) { box.appendChild(d); continue; }
     d.addEventListener('click', () => {
       run.party = run.party.filter(x => x !== p);
       run.party.push({ id: uidCounter++, defId: offer.defId, name: offer.name, hp: offer.hp, maxHp: c.hp, kills: 0 });
@@ -885,7 +903,7 @@ function chooseWhoToLeave(offer) {
   foot.innerHTML = '';
   const back = document.createElement('button');
   back.textContent = 'Never mind';
-  back.addEventListener('click', () => screenAftermath(0, []));
+  back.addEventListener('click', () => screenAftermath());
   foot.appendChild(back);
 }
 
@@ -996,17 +1014,18 @@ function screenVendor() {
   const have = new Set(run.relics);
   const avail = RELICS.filter(r => meta.relics.includes(r.id) && !have.has(r.id));
   const offers = run.rng.shuffle(avail).slice(0, 2);
+  const bought = new Set(); // never mark the shared data objects
   const render = () => {
     const box = $('mChoices');
     box.innerHTML = '';
     for (const r of offers) {
-      if (r.bought) continue;
+      if (bought.has(r.id)) continue;
       const price = Math.round(r.cost * disc);
       const d = document.createElement('div');
       const can = run.gold >= price;
       d.className = 'choice' + (can ? '' : ' locked');
       d.innerHTML = '<h3>' + r.name + '<span class="costTag">' + price + 'g</span></h3><div class="role">Relic</div><div class="blurb">' + r.text + '</div>';
-      if (can) d.addEventListener('click', () => { run.gold -= price; r.bought = true; takeRelicVendor(r.id, render); });
+      if (can) d.addEventListener('click', () => { run.gold -= price; bought.add(r.id); takeRelicVendor(r.id, render); });
       box.appendChild(d);
     }
     const priceHeal = Math.round(60 * disc);
@@ -1320,7 +1339,7 @@ window.addEventListener('keydown', (ev) => {
     case 'a': armAttack(); break;
     case 'r': if (u && u.usesLoad && !u.acted && !u.loaded) { E.reload(st, u); afterAction(u); } break;
     case 'w': if (u && !u.acted) { E.wait(st, u); afterAction(u); } break;
-    case 'u': if (u && u.moved && !u.acted) { u.x = u.startX; u.y = u.startY; u.moved = false; select(u.uid); } break;
+    case 'u': if (u && u.moved && !u.acted) { u.x = u.startX; u.y = u.startY; u.moved = false; u.anim = null; u.lunge = null; select(u.uid); } break;
     case 't': toggleThreat(); break;
     case '1': if (u) armAbility(u.abilities[0]); break;
     case '2': if (u) armAbility(u.abilities[1]); break;
