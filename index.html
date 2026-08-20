@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>COUNTERMINE</title>
+<style>
+  :root {
+    --bg: #0b0908;
+    --panel: #17130f;
+    --panel2: #1f1a15;
+    --line: #3a2f26;
+    --ink: #cfc4b0;
+    --dim: #8b8072;
+    --torch: #c2703a;
+    --gold: #cbb27a;
+    --blood: #b8483a;
+    --green: #7f9b52;
+    --blue: #6d9ec0;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    overflow: hidden;
+  }
+  button {
+    font-family: inherit; color: var(--ink); cursor: pointer;
+    background: var(--panel2); border: 1px solid var(--line);
+    padding: 7px 12px; font-size: 13px; letter-spacing: .04em;
+    transition: background .12s, border-color .12s, color .12s;
+  }
+  button:hover:not(:disabled) { background: #2a231c; border-color: #6b5741; color: #f0e6d2; }
+  button:disabled { opacity: .35; cursor: default; }
+  .mono { font-family: "Courier New", ui-monospace, monospace; }
+  .caps { text-transform: uppercase; letter-spacing: .16em; font-size: 11px; color: var(--dim); }
+  h1, h2, h3 { font-weight: 400; margin: 0; letter-spacing: .06em; }
+
+  #app { display: flex; align-items: center; justify-content: center; height: 100%; }
+  #stage { position: relative; width: 1290px; height: 620px; transform-origin: center; }
+
+  /* ---------------------------------------------------------- battle view */
+  #battle { display: none; height: 100%; gap: 10px; }
+  #battle.on { display: flex; }
+  #boardWrap { position: relative; flex: 0 0 auto; }
+  canvas { display: block; border: 1px solid var(--line); background: #0b0908; }
+  #floorTag {
+    position: absolute; top: 6px; left: 10px; pointer-events: none;
+    font-size: 12px; letter-spacing: .22em; color: #6d6154; text-transform: uppercase;
+  }
+  #phaseTag {
+    position: absolute; top: 4px; right: 10px; pointer-events: none;
+    font-size: 13px; letter-spacing: .18em; text-transform: uppercase;
+  }
+  #banner {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    pointer-events: none; background: rgba(8,6,5,.5);
+  }
+  #banner.on { display: flex; }
+  #banner div { font-size: 40px; letter-spacing: .3em; color: #e8dcc4; text-shadow: 0 4px 20px #000; }
+
+  #side { flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); padding: 9px 11px; }
+  .card > .caps { margin-bottom: 6px; }
+
+  .unitRow {
+    display: flex; align-items: center; gap: 8px; padding: 5px 6px; cursor: pointer;
+    border: 1px solid transparent; margin-bottom: 3px;
+  }
+  .unitRow:hover { background: #221c17; }
+  .unitRow.sel { border-color: var(--gold); background: #241d16; }
+  .unitRow.done { opacity: .42; }
+  .unitRow .nm { flex: 1 1 auto; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .unitRow .cls { font-size: 10px; letter-spacing: .12em; color: var(--dim); text-transform: uppercase; }
+  .hpbar { width: 74px; height: 7px; background: #0d0b09; border: 1px solid #2c241d; position: relative; }
+  .hpbar i { display: block; height: 100%; background: var(--green); }
+  .hpbar.low i { background: var(--blood); }
+  .hpnum { font-size: 11px; color: var(--dim); width: 42px; text-align: right; }
+
+  #abilities { display: flex; flex-direction: column; gap: 5px; }
+  .abBtn { text-align: left; padding: 6px 9px; line-height: 1.25; }
+  .abBtn b { font-weight: 400; font-size: 13px; }
+  .abBtn .sub { display: block; font-size: 11px; color: var(--dim); margin-top: 2px; }
+  .abBtn.armed { border-color: var(--torch); background: #2c1e14; }
+  .row { display: flex; gap: 5px; }
+  .row > button { flex: 1 1 0; }
+
+  #log { height: 92px; overflow: hidden; font-size: 12px; line-height: 1.45; color: #9c9284; }
+  #log div:last-child { color: var(--ink); }
+  #inspect { min-height: 74px; font-size: 12px; line-height: 1.4; color: #a89d8d; }
+  #inspect b { color: var(--ink); font-weight: 400; }
+
+  /* ------------------------------------------------------------ overlays */
+  .screen {
+    position: absolute; inset: 0; display: none; flex-direction: column;
+    background: rgba(9,7,6,.94); z-index: 20; padding: 22px 30px; overflow: auto;
+  }
+  .screen.on { display: flex; }
+  .screen h2 { font-size: 22px; letter-spacing: .24em; margin-bottom: 2px; }
+  .screen .lede { color: var(--dim); font-size: 13px; margin-bottom: 16px; font-style: italic; }
+
+  .choices { display: flex; gap: 12px; flex-wrap: wrap; }
+  .choice {
+    flex: 1 1 260px; max-width: 340px; background: var(--panel); border: 1px solid var(--line);
+    padding: 14px; cursor: pointer; transition: border-color .12s, transform .12s, background .12s;
+  }
+  .choice:hover { border-color: var(--gold); background: #1e1812; transform: translateY(-2px); }
+  .choice h3 { font-size: 17px; margin-bottom: 3px; }
+  .choice .role { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--torch); margin-bottom: 8px; }
+  .choice .stats { font-size: 12px; color: var(--dim); margin: 8px 0; }
+  .choice .blurb { font-size: 12px; color: #9c9284; font-style: italic; line-height: 1.45; }
+  .choice.locked { opacity: .45; cursor: default; }
+  .choice.locked:hover { border-color: var(--line); transform: none; }
+  .abLine { font-size: 12px; color: #a89d8d; margin-top: 5px; }
+  .abLine b { color: var(--ink); font-weight: 400; }
+
+  /* ------------------------------------------------------------ node map */
+  #mapCanvasWrap { flex: 1 1 auto; position: relative; }
+  #mapSvg { width: 100%; height: 100%; }
+  .mapNode { cursor: pointer; }
+  .mapNode.dis { cursor: default; }
+  #mapBar { display: flex; align-items: center; gap: 18px; margin-bottom: 10px; }
+  .stat { font-size: 13px; }
+  .stat span { color: var(--gold); }
+  #relicStrip { display: flex; gap: 6px; flex-wrap: wrap; }
+  .relicChip {
+    font-size: 11px; padding: 3px 8px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--gold); cursor: help;
+  }
+
+  /* ------------------------------------------------------------- title */
+  #title { justify-content: center; align-items: center; text-align: center; }
+  #title h1 { font-size: 62px; letter-spacing: .42em; margin-left: .42em; color: #e0d4bc; }
+  #title .tag { color: var(--dim); font-size: 14px; margin: 14px 0 30px; font-style: italic; max-width: 560px; line-height: 1.6; }
+  #title .row { gap: 10px; }
+  /* .row makes children flex:1, which broke "The Muster Roll" across three lines */
+  #title .row > button { flex: 0 0 auto; white-space: nowrap; padding: 11px 26px; font-size: 14px; letter-spacing: .16em; }
+
+  .tally { color: var(--gold); }
+  .costTag { float: right; color: var(--gold); font-size: 12px; }
+  .foot { margin-top: auto; padding-top: 14px; display: flex; gap: 10px; align-items: center; }
+  .hint { font-size: 11px; color: #6d6154; letter-spacing: .08em; }
+  .warn { color: var(--blood); }
+</style>
+</head>
+<body>
+<div id="app"><div id="stage">
+
+  <!-- ------------------------------------------------------------ battle -->
+  <div id="battle">
+    <div id="boardWrap">
+      <canvas id="cv"></canvas>
+      <div id="floorTag"></div>
+      <div id="phaseTag"></div>
+      <div id="banner"><div></div></div>
+    </div>
+    <div id="side">
+      <div class="card">
+        <div class="caps">The Company</div>
+        <div id="party"></div>
+      </div>
+      <div class="card" style="flex:0 0 auto">
+        <div class="caps" id="selName">Nobody selected</div>
+        <div id="abilities"></div>
+      </div>
+      <div class="card" style="flex:0 0 auto">
+        <div class="caps">Reading the room</div>
+        <div id="inspect">Hover a tile.</div>
+      </div>
+      <div class="card" style="flex:1 1 auto; display:flex; flex-direction:column">
+        <div class="caps">Dispatches</div>
+        <div id="log"></div>
+      </div>
+      <div class="row">
+        <button id="threatBtn">Threat [T]</button>
+        <button id="endBtn">End Turn [Space]</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ------------------------------------------------------------- title -->
+  <div class="screen on" id="title">
+    <h1>COUNTERMINE</h1>
+    <div class="tag">
+      Two armies broke into the under-levels of the fortress eleven years ago.
+      Neither of them came back out. You are going down to find out what they hit.
+    </div>
+    <div class="row">
+      <button id="btnStart">Go Down</button>
+      <button id="btnMuster">The Muster Roll</button>
+    </div>
+    <div class="hint" style="margin-top:24px" id="titleStats"></div>
+  </div>
+
+  <!-- --------------------------------------------------------- node map -->
+  <div class="screen" id="mapScreen">
+    <div id="mapBar">
+      <h2 id="floorName">THE BREACH</h2>
+      <div class="stat">Gold <span id="goldNum">0</span></div>
+      <div class="stat">Company <span id="partyNum">0</span>/4</div>
+      <div id="relicStrip"></div>
+      <button id="btnAbandon" style="margin-left:auto">Abandon the dig</button>
+    </div>
+    <div class="lede" id="floorSub"></div>
+    <div id="mapCanvasWrap"><svg id="mapSvg"></svg></div>
+    <div class="hint">Pick a route. You cannot come back up a level.</div>
+  </div>
+
+  <!-- ---------------------------------------------------------- generic -->
+  <div class="screen" id="modal">
+    <h2 id="mTitle"></h2>
+    <div class="lede" id="mLede"></div>
+    <div class="choices" id="mChoices"></div>
+    <div class="foot" id="mFoot"></div>
+  </div>
+
+</div></div>
+
+<script type="module" src="./src/game.js"></script>
+</body>
+</html>
