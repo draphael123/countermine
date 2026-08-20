@@ -6,10 +6,6 @@ volunteer down after them, and recruit whoever is still standing.
 
 **Play:** https://countermine.vercel.app
 
-> The Vercel project currently has team SSO deployment protection on, so the URL
-> redirects to a Vercel login. Turn it off at Project -> Settings -> Deployment
-> Protection -> Vercel Authentication -> Disabled to make it public.
-
 ## The shape of it
 
 - **Square-grid tactics.** Move up to your movement, then take one action:

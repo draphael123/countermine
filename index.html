@@ -323,7 +323,7 @@ input[type=text]:focus { outline: none; border-color: var(--torch); }
 
 /* ------------------------------------------------------------- tutorial */
 #coach {
-  position: absolute; z-index: 60; width: 320px; display: none;
+  position: absolute; z-index: 60; left: 842px; width: 448px; display: none;
   background: linear-gradient(180deg, #241c13, #14100c);
   border: 1px solid var(--torch-d); padding: 14px 16px;
   box-shadow: 0 12px 40px rgba(0,0,0,.7);
@@ -333,11 +333,8 @@ input[type=text]:focus { outline: none; border-color: var(--torch); }
 #coach p { margin: 0; font-size: 13px; line-height: 1.6; color: #d9cdb6; }
 #coach .cfoot { display: flex; align-items: center; gap: 9px; margin-top: 12px; }
 #coach .step { font-size: 10px; letter-spacing: .2em; color: var(--ink-far); margin-left: auto; }
-#coach::after {
-  content: ''; position: absolute; width: 10px; height: 10px;
-  background: #1d1710; border-right: 1px solid var(--torch-d); border-bottom: 1px solid var(--torch-d);
-  left: -6px; top: 22px; transform: rotate(135deg);
-}
+/* No arrow: the coach is docked, and the thing it refers to pulses instead. */
+#coach::after { display: none; }
 #coach.noArrow::after { display: none; }
 .pulseTarget { animation: pulseBorder 1.1s ease-in-out infinite; }
 @keyframes pulseBorder {

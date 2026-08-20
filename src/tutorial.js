@@ -5,6 +5,7 @@
 
 const $ = (id) => document.getElementById(id);
 
+let pulsed = null;
 let api = null;        // { state(), view(), screen() }
 let steps = [];
 let idx = -1;
@@ -28,7 +29,11 @@ export function endTutorial(completed) {
   if (onFinish) onFinish(completed);
 }
 
-export function hideCoach() { const c = $('coach'); if (c) c.classList.remove('on'); }
+export function hideCoach() {
+  const c = $('coach');
+  if (c) c.classList.remove('on');
+  if (pulsed) { pulsed.classList.remove('pulseTarget'); pulsed = null; }
+}
 
 let bound = false;
 function bindOnce() {
@@ -56,24 +61,22 @@ function show(step) {
   if (step.onShow) step.onShow();
 }
 
+// The coach is DOCKED (fixed position in CSS) rather than floated next to its
+// subject -- a box that jumps around the screen is much harder to follow than
+// one place to look plus a pulse on the control it is talking about.
 function place(step) {
   const c = $('coach');
-  const stage = $('stage');
-  const sr = stage.getBoundingClientRect();
-  let x = 878, y = 120;
-  if (step.anchor === 'board') { x = 300; y = 210; }
-  else if (step.anchor) {
-    const el = $(step.anchor);
-    if (el) {
-      const r = el.getBoundingClientRect();
-      const scale = sr.width ? (stage.offsetWidth / sr.width) : 1;
-      x = (r.left - sr.left) * scale - 336;
-      y = (r.top - sr.top) * scale;
-      if (x < 8) x = (r.right - sr.left) * scale + 14;
-    }
+  const battle = $('battle');
+  const side = $('side');
+  if (battle && side) {
+    // sit just below the ability panel, clamped to the stage
+    c.style.top = '86px';
   }
-  c.style.left = Math.max(8, Math.min(x, 1290 - 336)) + 'px';
-  c.style.top = Math.max(8, Math.min(y, 660 - 150)) + 'px';
+  if (pulsed) { pulsed.classList.remove('pulseTarget'); pulsed = null; }
+  if (step.anchor && step.anchor !== 'board') {
+    const el = $(step.anchor);
+    if (el) { el.classList.add('pulseTarget'); pulsed = el; }
+  }
 }
 
 // Called every frame by the main loop. Auto-advances action steps.
@@ -155,14 +158,8 @@ function buildSteps() {
       },
       button: 'Fight',
     },
-    {
-      title: 'Recruiting', anchor: null,
-      text: 'After every fight, three survivors offer to come with you. '
-        + '<b>Click one to take them</b>, or leave them and take gold instead.<br><br>'
-        + 'Four is the cap. Once you are full, taking a fifth means choosing who to '
-        + 'leave in the dark — and that is a death sentence, not a bench.',
-      onShow: () => { const c = $('coach'); c.classList.add('noArrow'); c.style.left = '470px'; c.style.top = '330px'; },
-      onDone: () => $('coach').classList.remove('noArrow'),
-    },
+    // No recruiting step: the coach lives inside the battle screen, which is
+    // gone by the time the recruit modal opens -- it could never display. The
+    // recruit screen carries its own instructions instead.
   ];
 }
