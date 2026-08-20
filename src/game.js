@@ -1967,21 +1967,34 @@ document.addEventListener('click', (ev) => {
 setSfxEnabled(settings.sound !== false);
 
 // =================================================================== keys
+function endTurnRequest() {
+  if (!st || st.phase !== 'player') return;
+  if (settings.confirmEnd) {
+    const idle = st.units.filter(x => x.alive && x.side === 'player' && !x.acted);
+    const now = performance.now();
+    if (idle.length && (!endTurnRequest.armed || now - endTurnRequest.armed > 3000)) {
+      endTurnRequest.armed = now;
+      banner(idle.length + (idle.length === 1 ? ' SOLDIER CAN' : ' SOLDIERS CAN') + ' STILL ACT — AGAIN TO END', 1600);
+      return;
+    }
+  }
+  endTurnRequest.armed = 0;
+  endTurn();
+}
+
 window.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape') {
     if ($('battle').classList.contains('on')) { cancelMode(); }
     return;
   }
   if (!st || !$('battle').classList.contains('on')) return;
+
+
   const u = view.selected ? unitByUid(view.selected) : null;
   switch (ev.key.toLowerCase()) {
     case ' ':
       ev.preventDefault();
-      if (settings.confirmEnd && st.phase === 'player') {
-        const idle = st.units.filter(x => x.alive && x.side === 'player' && !x.acted);
-        if (idle.length && !confirm(idle.length + ' still have not moved. End the round anyway?')) return;
-      }
-      endTurn(); break;
+      endTurnRequest(); break;
     case 'tab': {
       ev.preventDefault();
       const list = st.units.filter(x => x.alive && x.side === 'player' && !x.acted);
@@ -2021,13 +2034,7 @@ $('btnSettings').addEventListener('click', screenSettings);
 $('menuBtn').addEventListener('click', screenSettings);
 $('btnMuster').addEventListener('click', screenUnlocks);
 $('threatBtn').addEventListener('click', toggleThreat);
-$('endBtn').addEventListener('click', () => {
-  if (settings.confirmEnd && st && st.phase === 'player') {
-    const idle = st.units.filter(x => x.alive && x.side === 'player' && !x.acted);
-    if (idle.length && !confirm(idle.length + ' still have not moved. End the round anyway?')) return;
-  }
-  endTurn();
-});
+$('endBtn').addEventListener('click', endTurnRequest);
 $('btnAbandon').addEventListener('click', () => {
   if (!confirm('Abandon the dig? The company is written off.')) return;
   runLost([]);
