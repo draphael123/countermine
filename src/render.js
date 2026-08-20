@@ -657,7 +657,7 @@ export function draw(ctx, st, view) {
   if (view.forecast) {
     const fc = view.forecast;
     const { px, py } = tileToPx(fc.x, fc.y);
-    const label = fc.min + '–' + fc.max + (fc.flank ? ' +flank' : '') + (fc.confirm ? ' · tap to strike' : '');
+    const label = (fc.hit != null ? fc.hit + '% · ' : '') + fc.min + '–' + fc.max + (fc.flank ? ' +flank' : '') + (fc.confirm ? ' · tap to strike' : '');
     ctx.save();
     ctx.font = 'bold 12px "Courier New", monospace';
     const wLabel = ctx.measureText(label).width + (fc.kill ? 26 : 14);
@@ -670,6 +670,17 @@ export function draw(ctx, st, view) {
     ctx.fillStyle = fc.kill ? '#e8a08a' : '#e8d9bc';
     ctx.textAlign = 'left';
     ctx.fillText(label, chipX + 7, chipY + 13);
+    if (fc.counter) {
+      const cLabel = 'answers ' + fc.counter.min + '–' + fc.counter.max + ' · ' + fc.counter.hit + '%';
+      const cw2 = ctx.measureText(cLabel).width + 14;
+      const cx2 = Math.max(2, Math.min(CW - cw2 - 2, px + TILE / 2 - cw2 / 2));
+      ctx.fillStyle = 'rgba(30,12,9,0.92)';
+      ctx.fillRect(cx2, chipY + 19, cw2, 16);
+      ctx.strokeStyle = '#7a4b3a';
+      ctx.strokeRect(cx2 + 0.5, chipY + 19.5, cw2 - 1, 15);
+      ctx.fillStyle = '#e0a898';
+      ctx.fillText(cLabel, cx2 + 7, chipY + 31);
+    }
     if (fc.kill) {
       // a small skull: circle + jaw + eyes
       const sx2 = chipX + wLabel - 13, sy2 = chipY + 8;
@@ -732,15 +743,31 @@ export function draw(ctx, st, view) {
     ctx.fillStyle = 'rgba(255,236,205,0.08)';
     ctx.fillRect(CW * 0.14, gy, CW * 0.72, 2);
     const SCALE = 2.3;
-    const atkSpr = unitSprite(d2.a.defId, d2.a.custom, p > 0.34 && p < 0.62 ? 'strike' : 'idle');
-    const defSpr = unitSprite(d2.d.defId, d2.d.custom, p > 0.44 && p < 0.8 ? 'flinch' : 'idle');
+    const hasC = !!d2.counter;
+    const pm = hasC ? Math.min(1, p / 0.55) : p;          // main-beat clock
+    const pc = hasC ? Math.max(0, (p - 0.55) / 0.40) : 0; // answer-beat clock
+    const atkStriking = pm > 0.34 && pm < 0.62;
+    const atkSpr = unitSprite(d2.a.defId, d2.a.custom,
+      atkStriking ? 'strike' : (hasC && !d2.counter.miss && pc > 0.3 && pc < 0.75 ? 'flinch' : 'idle'));
+    const defSpr = unitSprite(d2.d.defId, d2.d.custom,
+      pc > 0.15 && pc < 0.55 ? 'strike' : (!d2.miss && pm > 0.44 && pm < 0.8 ? 'flinch' : 'idle'));
     // attacker enters from the left, lunges on the beat
     const aLeft = d2.aSide !== 'enemy';           // your blows read left-to-right, theirs right-to-left
     const dirD = aLeft ? 1 : -1;
-    const slide = Math.min(1, p / 0.28);
-    const lungePx = p > 0.34 && p < 0.62 ? Math.sin((p - 0.34) / 0.28 * Math.PI) * 60 * dirD : 0;
-    const ax = CW * (aLeft ? 0.30 : 0.70) - (1 - slide) * 220 * dirD + lungePx;
-    const dxp = CW * (aLeft ? 0.70 : 0.30) + (p > 0.44 && p < 0.62 ? Math.sin((p - 0.44) / 0.18 * Math.PI) * 22 * dirD : 0);
+    const slide = Math.min(1, pm / 0.28);
+    // a whiff lunges FURTHER -- sailing past where the target was
+    const lungeAmp = d2.miss ? 96 : 60;
+    let lungePx = pm > 0.34 && pm < 0.62 ? Math.sin((pm - 0.34) / 0.28 * Math.PI) * lungeAmp * dirD : 0;
+    let ax = CW * (aLeft ? 0.30 : 0.70) - (1 - slide) * 220 * dirD + lungePx;
+    let dxp = CW * (aLeft ? 0.70 : 0.30) + (!d2.miss && pm > 0.44 && pm < 0.62 ? Math.sin((pm - 0.44) / 0.18 * Math.PI) * 22 * dirD : 0);
+    // the defender sways back out of a missed blow
+    if (d2.miss && pm > 0.36 && pm < 0.7) dxp += Math.sin((pm - 0.36) / 0.34 * Math.PI) * 26 * dirD;
+    // the answer: defender lunges at the attacker, attacker rocks back
+    if (hasC && pc > 0) {
+      const cLunge = pc > 0.15 && pc < 0.55 ? Math.sin((pc - 0.15) / 0.40 * Math.PI) * 70 : 0;
+      dxp -= cLunge * dirD;
+      if (!d2.counter.miss && pc > 0.3 && pc < 0.6) ax -= Math.sin((pc - 0.3) / 0.3 * Math.PI) * 20 * dirD;
+    }
     ctx.imageSmoothingEnabled = false;
     ctx.save();
     ctx.translate(ax, gy + 6);
@@ -754,8 +781,8 @@ export function draw(ctx, st, view) {
     ctx.restore();
     ctx.imageSmoothingEnabled = true;
     // sparks burst off the blow itself
-    if (p > 0.44 && p < 0.66) {
-      const sp = (p - 0.44) / 0.22;
+    if (!d2.miss && pm > 0.44 && pm < 0.66) {
+      const sp = (pm - 0.44) / 0.22;
       ctx.save();
       ctx.globalAlpha = (1 - sp) * aDuel;
       for (let si = 0; si < 10; si++) {
@@ -768,7 +795,7 @@ export function draw(ctx, st, view) {
       ctx.restore();
     }
     // the move's name over the attacker
-    if (d2.abName && p > 0.1) {
+    if (d2.abName && p > 0.08 && (!hasC || p < 0.55)) {
       ctx.save();
       ctx.globalAlpha = Math.min(1, (p - 0.1) * 5) * aDuel;
       ctx.font = '17px "IM Fell", Georgia, serif';
@@ -783,9 +810,41 @@ export function draw(ctx, st, view) {
       ctx.fillText(d2.abName, nx, ny2 + 1);
       ctx.restore();
     }
+    // MISS reads out where the number would have been
+    if (d2.miss && pm > 0.5) {
+      ctx.font = '26px "IM Fell", Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 4; ctx.strokeStyle = '#000';
+      ctx.strokeText('M I S S', dxp, gy - 150);
+      ctx.fillStyle = '#b8ab93';
+      ctx.fillText('M I S S', dxp, gy - 150);
+    }
+    // the answer's own number (or its own miss) at the attacker
+    if (hasC && pc > 0.45) {
+      ctx.textAlign = 'center';
+      if (d2.counter.miss) {
+        ctx.font = '20px "IM Fell", Georgia, serif';
+        ctx.lineWidth = 4; ctx.strokeStyle = '#000';
+        ctx.strokeText('m i s s', ax, gy - 140);
+        ctx.fillStyle = '#8a8072';
+        ctx.fillText('m i s s', ax, gy - 140);
+      } else {
+        ctx.font = 'bold 30px "Courier New", monospace';
+        ctx.lineWidth = 5; ctx.strokeStyle = '#000';
+        const cy2 = gy - 140 - Math.min(1, (pc - 0.45) / 0.3) * 16;
+        ctx.strokeText('-' + d2.counter.dmg, ax, cy2);
+        ctx.fillStyle = d2.counter.kill ? '#ff6a4a' : '#e0b498';
+        ctx.fillText('-' + d2.counter.dmg, ax, cy2);
+        if (d2.counter.kill && pc > 0.6) {
+          ctx.font = '18px "IM Fell", Georgia, serif';
+          ctx.fillStyle = '#c8a898';
+          ctx.fillText('S L A I N', ax, cy2 + 28);
+        }
+      }
+    }
     // the number lands with the blow
-    if (p > 0.46) {
-      const np = Math.min(1, (p - 0.46) / 0.3);
+    if (!d2.miss && pm > 0.46) {
+      const np = Math.min(1, (pm - 0.46) / 0.3);
       ctx.font = 'bold ' + (d2.dmg >= 10 ? 44 : 34) + 'px "Courier New", monospace';
       ctx.textAlign = 'center';
       ctx.lineWidth = 5;
@@ -794,7 +853,7 @@ export function draw(ctx, st, view) {
       ctx.strokeText('-' + d2.dmg, dxp, ny);
       ctx.fillStyle = d2.kill ? '#ff6a4a' : '#ffe0a0';
       ctx.fillText('-' + d2.dmg, dxp, ny);
-      if (d2.kill && p > 0.62) {
+      if (d2.kill && pm > 0.62) {
         ctx.font = '20px "IM Fell", Georgia, serif';
         ctx.fillStyle = '#c8a898';
         ctx.fillText('S L A I N', dxp, ny + 34);
@@ -1189,6 +1248,22 @@ function drawFx(ctx, st) {
           const { px, py } = tileToPx(p.x, p.y);
           ctx.fillRect(px, py, TILE, TILE);
         }
+        ctx.restore();
+        keep.push(f);
+      }
+    } else if (f.kind === 'miss') {
+      const life = f.t / 34;
+      if (life < 1) {
+        const { px, py } = tileToPx(f.x, f.y);
+        ctx.save();
+        ctx.globalAlpha = 1 - life;
+        ctx.font = '13px "IM Fell", Georgia, serif';
+        ctx.textAlign = 'center';
+        ctx.lineWidth = 3; ctx.strokeStyle = '#000';
+        const my2 = py + 18 - life * 26;
+        ctx.strokeText('miss', px + TILE / 2, my2);
+        ctx.fillStyle = '#b8ab93';
+        ctx.fillText('miss', px + TILE / 2, my2);
         ctx.restore();
         keep.push(f);
       }

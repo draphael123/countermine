@@ -431,12 +431,41 @@ export function isFlanking(st, attacker, target, dist) {
   return !!(o && o.side === attacker.side);
 }
 
+// Cover: at range 2+, a wall or barricade beside the defender toward the
+// shooter turns aimed shots into guesses. Melee never grants cover.
+export function inCover(st, attacker, target) {
+  const dist = Math.abs(attacker.x - target.x) + Math.abs(attacker.y - target.y);
+  if (dist < 2) return false;
+  const dx = Math.sign(attacker.x - target.x), dy = Math.sign(attacker.y - target.y);
+  const checks = [];
+  if (dx) checks.push([target.x + dx, target.y]);
+  if (dy) checks.push([target.x, target.y + dy]);
+  return checks.some(([x, y]) => {
+    const t = tileAt(st, x, y);
+    return t && (t.t === T.WALL || t.bar);
+  });
+}
+
+// Base 90. Flank +8, pinned target +15, cover -20, weapon hitMod, counters -10.
+export function hitChance(st, attacker, target, opts = {}) {
+  if (target.structure) return 100;
+  const dist = Math.abs(attacker.x - target.x) + Math.abs(attacker.y - target.y);
+  let hit = 90;
+  if (isFlanking(st, attacker, target, dist)) hit += 8;
+  if (hasStatus(target, 'pinned')) hit += 15;
+  if (inCover(st, attacker, target)) hit -= 20;
+  hit += (attacker.def && attacker.def.hitMod) || 0;
+  if (opts.counter) hit -= 10;
+  return Math.max(5, Math.min(100, hit));
+}
+
 // Returns {min,max} shown in the UI, and roll() used by resolution.
 export function damageProfile(st, attacker, target, opts = {}) {
   const base = opts.dmg || attacker.atk;
   const dist = Math.abs(attacker.x - target.x) + Math.abs(attacker.y - target.y);
   let flat = 0;
   if (hasStatus(attacker, 'rallied')) flat += 3;
+  if (opts.dmg && attacker.def && attacker.def.arcana) flat += attacker.def.arcana;
   if (isFlanking(st, attacker, target, dist)) {
     flat += (st.relics.has('flensing') ? FLANK_BONUS * 2 : FLANK_BONUS)
       + (attacker.def.flankBonus || 0);
@@ -561,12 +590,51 @@ export function moveUnit(st, u, tx, ty) {
   return true;
 }
 
-function pushDuel(st, u, target, roll, abName) {
-  if (target.structure) return;
-  st.fx.push({ kind: 'duel', t: 0,
+function pushDuel(st, u, target, roll, abName, miss) {
+  if (target.structure) return null;
+  const fx = { kind: 'duel', t: 0,
     a: { defId: u.defId, custom: u.custom, boss: u.boss },
     d: { defId: target.defId, custom: target.custom, boss: target.boss },
-    aSide: u.side, dmg: roll, kill: target.hp - roll <= 0, abName: abName || null });
+    aSide: u.side, dmg: roll, kill: !miss && target.hp - roll <= 0, abName: abName || null, miss: !!miss };
+  st.fx.push(fx);
+  return fx;
+}
+
+// A survivor with the attacker in reach answers the blow at 75% weight.
+function tryCounter(st, defender, attacker) {
+  if (!defender.alive || defender.structure || !attacker.alive || attacker.structure) return null;
+  if (defender.usesLoad && !defender.loaded && !defender.freeShot) return null;
+  const d = Math.abs(defender.x - attacker.x) + Math.abs(defender.y - attacker.y);
+  if (d < (defender.minRange || 1) || d > defender.range) return null;
+  if (defender.range > 1 && d > 1 && !hasLOS(st, defender.x, defender.y, attacker.x, attacker.y)) return null;
+  const hc = hitChance(st, defender, attacker, { counter: true });
+  const miss = st.rng.int(1, 100) > hc;
+  let roll = 0;
+  if (!miss) {
+    const prof = damageProfile(st, defender, attacker, {});
+    roll = Math.max(1, Math.round(st.rng.int(prof.min, prof.max) * 0.75));
+  }
+  return { roll, miss, kill: !miss && attacker.hp - roll <= 0, hc };
+}
+
+function resolveCounter(st, defender, attacker) {
+  const c = tryCounter(st, defender, attacker);
+  if (!c) return null;
+  animLunge(defender, attacker.x, attacker.y);
+  if (c.miss) {
+    st.fx.push({ kind: 'miss', x: attacker.x, y: attacker.y, t: 0 });
+    logLine(st, defender.name + ' answers -- and misses.');
+  } else {
+    if (defender.range > 1 && Math.abs(defender.x - attacker.x) + Math.abs(defender.y - attacker.y) > 1) {
+      st.fx.push({ kind: 'trace', x1: defender.x, y1: defender.y, x2: attacker.x, y2: attacker.y, col: '#d8c9a3', t: 0 });
+    } else {
+      st.fx.push({ kind: 'slash', x: attacker.x, y: attacker.y, dx: Math.sign(attacker.x - defender.x), dy: Math.sign(attacker.y - defender.y), t: 0 });
+    }
+    applyDamage(st, attacker, c.roll, defender, {});
+    logLine(st, defender.name + ' answers for ' + c.roll + '.');
+  }
+  if (defender.usesLoad) { if (defender.freeShot) defender.freeShot = false; else defender.loaded = false; }
+  return c;
 }
 
 export function basicAttack(st, u, target) {
@@ -583,15 +651,26 @@ export function basicAttack(st, u, target) {
     st.fx.push({ kind: 'slash', x: target.x, y: target.y, dx: Math.sign(target.x - u.x), dy: Math.sign(target.y - u.y), t: 0 });
   }
   animLunge(u, target.x, target.y);
+  const hc = hitChance(st, u, target);
+  const missed = !target.structure && st.rng.int(1, 100) > hc;
   const prof = damageProfile(st, u, target, {});
-  const roll = st.rng.int(prof.min, prof.max);
-  pushDuel(st, u, target, roll);
-  applyDamage(st, target, roll, u, {});
-  if (st.relics.has('oil') && u.side === 'player' && !target.structure && target.alive) {
-    addStatus(target, 'burning', 2, 3);
+  const roll = missed ? 0 : st.rng.int(prof.min, prof.max);
+  const duelFx = pushDuel(st, u, target, roll, null, missed);
+  if (missed) {
+    st.fx.push({ kind: 'miss', x: target.x, y: target.y, t: 0 });
+    logLine(st, u.name + ' misses ' + target.name + '.');
+  } else {
+    applyDamage(st, target, roll, u, {});
+    if (st.relics.has('oil') && u.side === 'player' && !target.structure && target.alive) {
+      addStatus(target, 'burning', 2, 3);
+    }
+    logLine(st, u.name + ' hits ' + (target.structure ? 'the barricade' : target.name)
+      + ' for ' + roll + (prof.flanking ? ' (flanked)' : '') + '.');
   }
-  logLine(st, u.name + ' hits ' + (target.structure ? 'the barricade' : target.name)
-    + ' for ' + roll + (prof.flanking ? ' (flanked)' : '') + '.');
+  if (!target.structure && target.alive && u.alive) {
+    const c = resolveCounter(st, target, u);
+    if (c && duelFx) duelFx.counter = { dmg: c.roll, miss: c.miss, kill: c.kill };
+  }
   if (u.usesLoad) {
     if (u.freeShot) { u.freeShot = false; } else { u.loaded = false; }
   }
@@ -689,12 +768,23 @@ export function resolveAbility(st, u, aid, ab, tx, ty, dir) {
           col: ab.status === 'burning' ? '#e08a3c' : '#d8c9a3', t: 0 });
       }
       animLunge(u, tx, ty);
+      const hcA = hitChance(st, u, tgt);
+      const missA = !tgt.structure && st.rng.int(1, 100) > hcA;
       const prof = damageProfile(st, u, tgt, { dmg: ab.dmg, pierce: ab.pierce });
-      const roll = st.rng.int(prof.min, prof.max);
-      pushDuel(st, u, tgt, roll, ab.name);
-      applyDamage(st, tgt, roll, u, { pierce: ab.pierce });
-      if (ab.status && tgt.alive) addStatus(tgt, ab.status, ab.dur, ab.val);
-      logLine(st, u.name + ' uses ' + ab.name + ' for ' + roll + '.');
+      const roll = missA ? 0 : st.rng.int(prof.min, prof.max);
+      const dfx = pushDuel(st, u, tgt, roll, ab.name, missA);
+      if (missA) {
+        st.fx.push({ kind: 'miss', x: tgt.x, y: tgt.y, t: 0 });
+        logLine(st, u.name + ' misses with ' + ab.name + '.');
+      } else {
+        applyDamage(st, tgt, roll, u, { pierce: ab.pierce });
+        if (ab.status && tgt.alive) addStatus(tgt, ab.status, ab.dur, ab.val);
+      }
+      if (!tgt.structure && tgt.alive && u.alive) {
+        const cc = resolveCounter(st, tgt, u);
+        if (cc && dfx) dfx.counter = { dmg: cc.roll, miss: cc.miss, kill: cc.kill };
+      }
+      if (!missA) logLine(st, u.name + ' uses ' + ab.name + ' for ' + roll + '.');
       return;
     }
     case 'buff': {
@@ -726,7 +816,7 @@ export function resolveAbility(st, u, aid, ab, tx, ty, dir) {
     }
     case 'heal': {
       if (!target) return;
-      const bonus = st.relics.has('tourniquet') && u.side === 'player' ? 4 : 0;
+      const bonus = (st.relics.has('tourniquet') && u.side === 'player' ? 4 : 0) + ((u.def && u.def.arcana) || 0);
       const amt = st.rng.int(ab.amount[0], ab.amount[1]) + bonus;
       const before = target.hp;
       target.hp = Math.min(target.maxHp, target.hp + amt);
@@ -973,19 +1063,10 @@ function aiTakeTurn(st, u) {
     if (best.s.x !== u.x || best.s.y !== u.y) moveUnit(st, u, best.s.x, best.s.y);
     const target = st.units.find(t => t.uid === best.f.uid);
     if (target && target.alive) {
-      animLunge(u, target.x, target.y);
-      if (u.range > 1 && Math.abs(u.x - target.x) + Math.abs(u.y - target.y) > 1) {
-        st.fx.push({ kind: 'trace', x1: u.x, y1: u.y, x2: target.x, y2: target.y, col: '#c9b193', t: 0 });
-      } else {
-        st.fx.push({ kind: 'slash', x: target.x, y: target.y, dx: Math.sign(target.x - u.x), dy: Math.sign(target.y - u.y), t: 0 });
-      }
-      const prof = damageProfile(st, u, target, {});
-      const roll = st.rng.int(prof.min, prof.max);
-      pushDuel(st, u, target, roll);
-      applyDamage(st, target, roll, u, {});
-      logLine(st, u.name + ' hits ' + target.name + ' for ' + roll + '.');
+      basicAttack(st, u, target);
+    } else {
+      u.acted = true;
     }
-    u.acted = true;
     return;
   }
 
@@ -1188,6 +1269,31 @@ function tryAbility(st, u, aid, ab, foes) {
       }
       return false;
     }
+    case 'e_breach': {
+      // charge along its own row, toward the players' side of the dig
+      let hits = 0;
+      for (const f of foes) if (f.y === u.y && f.x < u.x) hits++;
+      if (!hits) {
+        // sidestep one row toward the largest count first
+        const spots = reachableTiles(st, u);
+        let bestRow = null;
+        for (const s of spots) {
+          let n = 0;
+          for (const f of foes) if (f.y === s.y && f.x < s.x) n++;
+          if (n && (!bestRow || n > bestRow.n)) bestRow = { n, s };
+        }
+        if (!bestRow) return false;
+        moveUnit(st, u, bestRow.s.x, bestRow.s.y);
+      }
+      const tiles = [];
+      for (let x = u.x - 1; x >= 0; x--) tiles.push({ x, y: u.y });
+      if (!tiles.length) return false;
+      u.windup = { aid, ab, tiles };
+      st.fx.push({ kind: 'snd', s: 'warn' });
+      u.cds[aid] = ab.cd;
+      logLine(st, u.name + ' lowers its shoulder at the lane.');
+      return true;
+    }
     case 'e_drag': {
       const cands = foes.filter(f => {
         const d = Math.abs(u.x - f.x) + Math.abs(u.y - f.y);
@@ -1206,9 +1312,54 @@ function useAbilityAI(st, u, aid, ab, tx, ty) {
   u.cds[aid] = ab.cd;
 }
 
+function breachCharge(st, u, ab, tiles) {
+  st.fx.push({ kind: 'boom', tiles, t: 0 });
+  st.fx.push({ kind: 'shake', mag: 9, t: 0 });
+  logLine(st, u.name + ' comes through the lane.');
+  let stopX = null;
+  for (const p of tiles) {
+    const t = tileAt(st, p.x, p.y);
+    if (!t) break;
+    if (t.bar) { t.bar = null; logLine(st, 'The barricade is matchwood.'); }
+    if (t.t === T.WALL) { t.t = T.FLOOR; t.stain = (p.x * 41 + p.y * 13) % 997; logLine(st, 'The wall gives way.'); }
+    if (t.t !== T.FLOOR) { stopX = p.x + 1; break; }
+    const o = occupant(st, p.x, p.y);
+    if (o && o.alive) {
+      const prof = damageProfile(st, u, o, { dmg: ab.dmg });
+      applyDamage(st, o, st.rng.int(prof.min, prof.max), u, {});
+      if (o.alive) {
+        // shoved out of the lane; if both sides are blocked, it stops here
+        const up = !occupant(st, p.x, p.y - 1) && passable(st, p.x, p.y - 1, o);
+        const dn = !occupant(st, p.x, p.y + 1) && passable(st, p.x, p.y + 1, o);
+        if (up || dn) {
+          const ny = up && dn ? (st.rng.chance(0.5) ? p.y - 1 : p.y + 1) : (up ? p.y - 1 : p.y + 1);
+          moveUnit(st, u === o ? o : o, o.x, ny);
+          logLine(st, o.name + ' is hurled aside.');
+        } else { stopX = p.x + 1; break; }
+      }
+    }
+  }
+  // the Breacher ends where the charge died
+  const endX = stopX != null ? stopX : tiles[tiles.length - 1].x;
+  let destX = null;
+  for (let x = endX; x < u.x; x++) {
+    const t = tileAt(st, x, u.y);
+    if (t && t.t === T.FLOOR && !t.bar && !occupant(st, x, u.y)) { destX = x; break; }
+  }
+  if (destX != null) {
+    const path = [];
+    for (let x = u.x; x >= destX; x--) path.push({ x, y: u.y });
+    u.path = path;
+    animWalk(u, path);
+    u.x = destX;
+    u.moved = true;
+  }
+}
+
 function fireWindup(st, u) {
   const { ab, tiles, aid } = u.windup;
   u.windup = null;
+  if (aid === 'e_breach') { breachCharge(st, u, ab, tiles); return; }
   st.fx.push({ kind: 'boom', tiles, t: 0 });
   logLine(st, u.name + ' brings it down.');
   for (const p of tiles) {

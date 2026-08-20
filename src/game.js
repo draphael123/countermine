@@ -136,7 +136,9 @@ function newRun(seed, captain) {
   const rng = E.makeRng(s);
   const cap = captain || makeCaptain(defaultCaptain());
   run = {
-    seed: s, rng, floorIdx: 0, gold: 60, mana: 12, manaMax: 12, relics: [], party: [], nodeId: null,
+    seed: s, rng, floorIdx: 0, gold: 60,
+    mana: 12 + ((cap.def && cap.def.manaBonus) || 0), manaMax: 12 + ((cap.def && cap.def.manaBonus) || 0),
+    relics: [], party: [], nodeId: null,
     map: null, cleared: 0, fights: 0, kills: 0, losses: 0,
   };
   // You go down ALONE. Everyone else is found below.
@@ -656,7 +658,8 @@ cv.addEventListener('mousemove', (ev) => {
       if (!ab || ab.dmg) {
         const prof = E.damageProfile(st, sel, o, ab ? { dmg: ab.dmg, pierce: ab.pierce } : {});
         view.forecast = { x: t.x, y: t.y, min: prof.min, max: prof.max,
-          kill: prof.max >= o.hp, flank: prof.flanking };
+          kill: prof.max >= o.hp, flank: prof.flanking,
+          hit: E.hitChance(st, sel, o), counter: counterPreview(sel, o) };
       }
     }
   }
@@ -786,11 +789,22 @@ function touchPreview(t) {
     if (!ab || ab.dmg) {
       const prof = E.damageProfile(st, sel, o, ab ? { dmg: ab.dmg, pierce: ab.pierce } : {});
       view.forecast = { x: t.x, y: t.y, min: prof.min, max: prof.max,
-        kill: prof.max >= o.hp, flank: prof.flanking, confirm: true };
+        kill: prof.max >= o.hp, flank: prof.flanking, confirm: true,
+        hit: E.hitChance(st, sel, o), counter: counterPreview(sel, o) };
     }
   }
   E.logLine(st, 'Tap again to confirm.');
   syncUI();
+}
+
+function counterPreview(attacker, target) {
+  if (!st || !target.alive || target.structure) return null;
+  if (target.usesLoad && !target.loaded && !target.freeShot) return null;
+  const d = Math.abs(attacker.x - target.x) + Math.abs(attacker.y - target.y);
+  if (d < (target.minRange || 1) || d > target.range) return null;
+  const prof = E.damageProfile(st, target, attacker, {});
+  return { min: Math.max(1, Math.round(prof.min * 0.75)), max: Math.max(1, Math.round(prof.max * 0.75)),
+    hit: E.hitChance(st, target, attacker, { counter: true }) };
 }
 
 function cancelMode() {
@@ -1073,7 +1087,16 @@ function endBattle() {
   }
   run.fights++;
 
-  screenBattleReport(report, gold, dead);
+  // the boss's relics are TAKEN, not bought
+  let spoils = [];
+  if (pendingNode.type === 'boss') {
+    const bossId = FLOORS[run.floorIdx].boss;
+    for (const rl of RELICS) {
+      if (rl.boss === bossId && !meta.relics.includes(rl.id)) { meta.relics.push(rl.id); spoils.push(rl); }
+    }
+    if (spoils.length) saveMeta();
+  }
+  screenBattleReport(report, gold, dead, spoils);
 }
 
 // A run should end with a RECORD: the company, its fates, what it carried.
@@ -1163,7 +1186,7 @@ function screenPrisoner() {
 }
 
 // ---------------------------------------------------------- the battle report
-function screenBattleReport(report, gold, dead) {
+function screenBattleReport(report, gold, dead, spoils) {
   showScreen('modal');
   $('mEyebrow').textContent = 'After action — ' + report.rounds + ' round' + (report.rounds === 1 ? '' : 's');
   $('mTitle').textContent = 'THE DUST SETTLES';
@@ -1173,6 +1196,19 @@ function screenBattleReport(report, gold, dead) {
     : 'Nobody will sing about this one.';
   const box = $('mChoices');
   box.innerHTML = '';
+  if (spoils && spoils.length) {
+    const bossName = BOSSES[FLOORS[run.floorIdx].boss].name;
+    for (const rl of spoils) {
+      const d = document.createElement('div');
+      d.className = 'choice locked';
+      d.style.borderColor = '#8a6a20';
+      d.innerHTML = '<h3 style="color:var(--gold)">' + rl.name + '<span class="costTag">RELIC</span></h3>'
+        + '<div class="role">Taken from ' + bossName + ' \u2014 yours in every run from now on</div>'
+        + '<div class="blurb">' + rl.text + '</div>';
+      box.appendChild(d);
+    }
+    if (settings.sound !== false) play('coin');
+  }
   for (const sRow of report.soldiers) {
     const d = document.createElement('div');
     d.className = 'choice locked';
@@ -1406,11 +1442,24 @@ function takeRelicVendor(rid, render) {
 }
 
 // ============================================================== run ending
+function unlockClassesByTallies() {
+  const fresh = [];
+  for (const key of Object.keys(CLASSES)) {
+    const cls = CLASSES[key];
+    if (cls.locked && !meta.classes.includes(key) && meta.tallies >= cls.cost) {
+      meta.classes.push(key); fresh.push(cls.name);
+    }
+  }
+  if (fresh.length) saveMeta();
+  return fresh;
+}
+
 function runLost(dead) {
   clearRun();
   for (const p of run.party) recordFate(p, 'lost', run.floorIdx + 1);
   const banked = Math.round(run.gold * 0.35) + run.kills * 3 + run.floorIdx * 40 + run.fights * 8;
   meta.tallies += banked;
+  const freshCls = unlockClassesByTallies();
   meta.deepest = Math.max(meta.deepest, run.floorIdx + 1);
   saveMeta();
   showScreen('modal');
@@ -1437,13 +1486,14 @@ function runLost(dead) {
   $('mLede').textContent = 'Floor ' + (run.floorIdx + 1) + '. ' + run.kills + ' of theirs, ' + run.losses + ' of yours. '
     + 'Somebody will scratch the tally on the wall by the stair.';
   renderEpitaph(banked, false);
+  if (freshCls.length) banner(freshCls.join(' & ').toUpperCase() + (freshCls.length > 1 ? ' JOIN' : ' JOINS') + ' THE RECRUIT POOL', 2600);
   $('mFoot').innerHTML = '';
   const again = document.createElement('button');
   again.textContent = 'Send another company';
   again.addEventListener('click', screenCreator);
   const muster = document.createElement('button');
-  muster.textContent = 'Unlocks';
-  muster.addEventListener('click', screenUnlocks);
+  muster.textContent = 'Relics';
+  muster.addEventListener('click', screenRelics);
   const home = document.createElement('button');
   home.textContent = 'Back to the surface';
   home.addEventListener('click', goTitle);
@@ -1456,6 +1506,7 @@ function runWon() {
   if (settings.sound !== false) play('bell');
   const banked = Math.round(run.gold * 0.5) + run.kills * 4 + 200;
   meta.tallies += banked; meta.wins++; meta.deepest = 3;
+  const freshCls = unlockClassesByTallies();
   saveMeta();
   showScreen('modal');
   $('mEyebrow').textContent = 'You got out';
@@ -1463,6 +1514,7 @@ function runWon() {
   $('mLede').textContent = 'It ends in a room neither army dug, and the digging stops. '
     + run.party.map(p => p.name).join(', ') + ' walk back up.';
   renderEpitaph(banked, true);
+  if (freshCls.length) banner(freshCls.join(' & ').toUpperCase() + (freshCls.length > 1 ? ' JOIN' : ' JOINS') + ' THE RECRUIT POOL', 2600);
   $('mFoot').innerHTML = '';
   const again = document.createElement('button');
   again.textContent = 'Go down again';
@@ -1474,80 +1526,36 @@ function runWon() {
 }
 
 // ================================================================ the roster
-function screenUnlocks() {
+function screenRelics() {
   showScreen('modal');
-  const render = () => {
-    $('mEyebrow').textContent = 'Spend tallies — permanent, between runs';
-    $('mTitle').textContent = 'UNLOCKS';
-    $('mLede').innerHTML = 'You bank <b>tallies</b> when a run ends. Spending them here adds classes and relics '
-      + 'to what future runs can find — more OPTIONS in the dark, never raw power. '
-      + 'You have <span class="tally">' + meta.tallies + '</span>.';
-    const box = $('mChoices');
-    box.innerHTML = '';
-
-    const section = (label) => {
-      const h = document.createElement('div');
-      h.className = 'rosterSection';
-      h.innerHTML = '<span>' + label + '</span>';
-      box.appendChild(h);
-    };
-
-    // ---- classes: who can be found down there
-    section('Classes of the Company');
-    for (const key of Object.keys(CLASSES)) {
-      const c = CLASSES[key];
-      const owned = meta.classes.includes(key);
-      const can = !owned && c.locked && meta.tallies >= c.cost;
-      const d = document.createElement('div');
-      d.className = 'choice' + (owned || !can ? ' locked' : '');
-      if (!owned && c.locked) d.style.opacity = can ? '1' : '.55';
-      d.innerHTML =
-        '<img class="cardP" style="border-color:' + (c.colour || '#3c3128') + '" src="' + portraitURL(key, null, 84, 100) + '" alt="">' +
-        '<h3>' + c.name + (owned || !c.locked ? '' : '<span class="costTag">' + c.cost + ' tallies</span>') + '</h3>' +
-        '<div class="role" style="color:' + (c.colour || 'var(--torch)') + '">' + c.role + ' · ' +
-        (owned ? 'in the recruit pool' : 'click to unlock') + '</div>' +
-        '<div class="stats mono">' + c.hp + ' hp · ' + c.armor + ' armour · ' + c.mov + ' move · hits ' + c.atk[0] + '–' + c.atk[1] + '</div>' +
-        c.abilities.map(a => '<div class="abLine"><b>' + ABILITIES[a].name + '</b> — ' + kw(ABILITIES[a].desc) + '</div>').join('') +
-        '<div class="blurb" style="margin-top:8px">' + c.blurb + '</div>';
-      if (can) d.addEventListener('click', () => {
-        meta.tallies -= c.cost; meta.classes.push(key); saveMeta(); play('recruit'); render();
-      });
-      box.appendChild(d);
-    }
-
-    // ---- relics: what can be found down there
-    section('Relics of the Siege');
-    for (const rl of RELICS) {
-      const owned = meta.relics.includes(rl.id);
-      const can = !owned && rl.locked && meta.tallies >= rl.cost;
-      if (!rl.locked && owned) continue; // base relics need no card
-      const d = document.createElement('div');
-      d.className = 'choice' + (owned || !can ? ' locked' : '');
-      if (!owned) d.style.opacity = can ? '1' : '.55';
-      d.innerHTML =
-        '<h3>' + rl.name + (owned ? '' : '<span class="costTag">' + rl.cost + ' tallies</span>') + '</h3>' +
-        '<div class="role" style="color:var(--gold)">' + (owned ? 'In the relic pool' : 'Click to unlock') + '</div>' +
-        '<div class="blurb">' + rl.text + '</div>';
-      if (can) d.addEventListener('click', () => {
-        meta.tallies -= rl.cost; meta.relics.push(rl.id); saveMeta(); play('coin'); render();
-      });
-      box.appendChild(d);
-    }
-
-    $('mFoot').innerHTML = '';
-    const back = document.createElement('button');
-    back.textContent = 'Back';
-    back.addEventListener('click', goTitle);
-    $('mFoot').appendChild(back);
-    const hint = document.createElement('div');
-    hint.className = 'hint';
-    hint.textContent = 'Unlocks add options to the pool, never raw power. A run is still a run.';
-    $('mFoot').appendChild(hint);
-  };
-  render();
+  $('mEyebrow').textContent = 'Trophies of the dig \u2014 permanent, between runs';
+  $('mTitle').textContent = 'RELICS';
+  $('mLede').innerHTML = 'What the company can find and buy below. The locked ones are carried by the floor bosses \u2014 '
+    + 'kill the bearer once and its relics join the pool for every run after. '
+    + 'New CLASSES join the recruit pool on their own as your lifetime tallies grow (you have <span class="tally">' + meta.tallies + '</span>).';
+  const box = $('mChoices');
+  box.innerHTML = '';
+  const bossOrder = ['', 'breacher', 'choirmaster', 'undermaster'];
+  const sorted = RELICS.slice().sort((a, b) => bossOrder.indexOf(a.boss || '') - bossOrder.indexOf(b.boss || ''));
+  for (const rl of sorted) {
+    const owned = meta.relics.includes(rl.id) || !rl.locked;
+    const d = document.createElement('div');
+    d.className = 'choice locked';
+    d.style.opacity = owned ? '1' : '.55';
+    const prov = rl.boss
+      ? (owned ? 'Taken from ' + BOSSES[rl.boss].name : 'Carried by ' + BOSSES[rl.boss].name + ' \u2014 kill it once')
+      : 'Found and sold in the dark from the first run';
+    d.innerHTML = '<h3>' + (owned ? rl.name : '???') + (owned ? '' : '<span class="costTag">LOCKED</span>') + '</h3>'
+      + '<div class="role" style="color:var(--gold)">' + prov + '</div>'
+      + '<div class="blurb">' + (owned ? rl.text : 'Its work is not known yet.') + '</div>';
+    box.appendChild(d);
+  }
+  $('mFoot').innerHTML = '';
+  const back = document.createElement('button');
+  back.textContent = 'Back';
+  back.addEventListener('click', goTitle);
+  $('mFoot').appendChild(back);
 }
-
-// every soldier's story ends somewhere; the Roster remembers
 function recordFate(soldier, fate, floor) {
   meta.history = meta.history || [];
   meta.history.push({
@@ -1586,9 +1594,10 @@ const TIPS = {
   reloadR: ['The crossbow', 'Crossbows hit hardest in the company, but every shot costs a turn of winding. Shoot, reload, shoot — plan the rhythm.'],
   fullparty: ['Four is the cap', 'Taking a fifth means leaving one of yours in the dark — and that is a death, not a bench. Gold is the safe answer.'],
   death: ['Nobody comes back', 'That soldier is gone for the run, and the next fights scale to the company you still have. Retreat is a real option — a hurt soldier pulled back is a soldier kept.'],
-  tallies: ['Tallies', 'The one thing that survives a run. Spend them on THE ROSTER to add classes and relics to what future runs can find.'],
+  tallies: ['Tallies', 'The one thing that survives a run. They climb forever, and new CLASSES join the recruit pool on their own as they grow. Relics are different \u2014 those are taken off the floor bosses.'],
   boss: ['The floor’s master', 'Bosses hit harder, call for help, and hold the only stair down. Spend your cooldowns — there is nothing after this worth saving them for.'],
   prisoner: ['Prisoners', 'This is how the company grows — battles pay gold, prisoners pay PEOPLE. You cannot pick who they are, only what they turn out to be.'],
+  hitchance: ['Hit Chance', 'Blows can MISS now. Base 90: flanking +8, a pinned target +15, and a defender hugging a wall or barricade against a shot takes -20. The forecast shows the number before you commit \u2014 and a survivor in reach ANSWERS at three-quarter strength.'],
   mana: ['Mana', 'Abilities cost MANA from one pool the whole company shares — the number under the party list. It does not come back on its own: sleep at camps, buy incense from the quartermaster, or descend a floor.'],
   gold: ['Gold', 'Gold is this run’s money and it DIES with the run. Spend it at the quartermaster on relics, healing, and plate — leaving with full pockets is leaving it in the dirt.'],
   recap: ['The three laws', 'Orange tiles WILL be hit — never stand in them. A flanked foe takes +3 from behind. And nobody you lose comes back.'],
@@ -2032,7 +2041,7 @@ $('btnSettings').addEventListener('click', screenSettings);
   $('btnAbandon').before(m);
 })();
 $('menuBtn').addEventListener('click', screenSettings);
-$('btnMuster').addEventListener('click', screenUnlocks);
+$('btnMuster').addEventListener('click', screenRelics);
 $('threatBtn').addEventListener('click', toggleThreat);
 $('endBtn').addEventListener('click', endTurnRequest);
 $('btnAbandon').addEventListener('click', () => {
@@ -2147,8 +2156,9 @@ function step(dt) {
       else if (f.kind === 'snd') { play(f.s, o); if (f.s === 'warn') tip('windup'); }
       else if (f.kind === 'duel') {
         if (duelWanted(f) && !view.duel) {
-          view.duel = Object.assign({}, f, { t0: performance.now(), dur: 1150 });
+          view.duel = Object.assign({}, f, { t0: performance.now(), dur: f.counter ? 1800 : (f.miss ? 1000 : 1150) });
         }
+        if (f.miss) tip('hitchance');
       }
     }
     st.fx = st.fx.filter(f => f.kind !== 'snd' && f.kind !== 'duel');
@@ -2174,8 +2184,9 @@ function step(dt) {
       if (f.kind === 'duel' && !f.heard) {
         f.heard = true;
         if (duelWanted(f) && !view.duel) {
-          view.duel = Object.assign({}, f, { t0: performance.now(), dur: 1150 });
+          view.duel = Object.assign({}, f, { t0: performance.now(), dur: f.counter ? 1800 : (f.miss ? 1000 : 1150) });
         }
+        if (f.miss) tip('hitchance');
       }
     }
     st.fx = st.fx.filter(f => f.kind !== 'duel' && f.kind !== 'snd');

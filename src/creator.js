@@ -1,6 +1,6 @@
 // COUNTERMINE -- captain creator. A past, an allotment, one signature, and a
 // bearing. Kept out of game.js: it owns its own screen and hands back a config.
-import { CAPTAIN_BASE, ALLOTMENT, STAT_LINES, SIGNATURES, ORIGINS, CALLINGS, ABILITIES, NAMES } from './data.js';
+import { CAPTAIN_BASE, ALLOTMENT, STAT_LINES, SIGNATURES, ORIGINS, CALLINGS, ABILITIES, NAMES, WEAPONS } from './data.js';
 import { drawPortrait, CUSTOM_OPTIONS, FIGURES } from './art.js';
 import { play } from './sfx.js';
 
@@ -8,10 +8,11 @@ const $ = (id) => document.getElementById(id);
 
 // one-click allotments for players who don't want to do arithmetic
 const PRESETS = [
-  { id: 'wall', name: 'The Wall', stats: { vigour: 3, haste: 0, plate: 3, might: 0 } },
-  { id: 'blade', name: 'The Blade', stats: { vigour: 0, haste: 1, plate: 0, might: 3 } },
-  { id: 'runner', name: 'The Runner', stats: { vigour: 1, haste: 3, plate: 0, might: 2 } },
-  { id: 'even', name: 'The Even Hand', stats: { vigour: 2, haste: 1, plate: 1, might: 2 } },
+  { id: 'wall', name: 'The Wall', stats: { vigour: 3, haste: 0, plate: 3, might: 1, arcana: 0, spirit: 1 } },
+  { id: 'blade', name: 'The Blade', stats: { vigour: 2, haste: 1, plate: 0, might: 3, arcana: 0, spirit: 2 } },
+  { id: 'runner', name: 'The Runner', stats: { vigour: 2, haste: 3, plate: 0, might: 2, arcana: 0, spirit: 1 } },
+  { id: 'hexen', name: 'The Hexen', stats: { vigour: 2, haste: 0, plate: 0, might: 0, arcana: 3, spirit: 3 } },
+  { id: 'even', name: 'The Even Hand', stats: { vigour: 2, haste: 1, plate: 1, might: 2, arcana: 1, spirit: 1 } },
 ];
 
 const WEAPON_SOUND = {
@@ -21,7 +22,7 @@ const WEAPON_SOUND = {
 export function defaultCaptain() {
   return {
     name: 'Vetch',
-    stats: { vigour: 2, haste: 1, plate: 1, might: 2 },
+    stats: { vigour: 2, haste: 1, plate: 1, might: 2, arcana: 1, spirit: 1 },
     calling: 'knight',
     sig: 'sig_hold',   // self-cast: never a dead button on a solo start
     origin: 'deserter',
@@ -31,7 +32,8 @@ export function defaultCaptain() {
 
 export function randomCaptain(rand = Math.random) {
   const pick = (a) => a[Math.floor(rand() * a.length)];
-  const stats = { vigour: 0, haste: 0, plate: 0, might: 0 };
+  const stats = {};
+  for (const l of STAT_LINES) stats[l.id] = 0;
   const keys = STAT_LINES.map(s => s.id);
   let left = ALLOTMENT, guard = 0;
   while (left > 0 && guard++ < 60) {
@@ -62,17 +64,24 @@ export function randomCaptain(rand = Math.random) {
 // A config becomes a real class definition. Every stat point is a visible
 // number on the unit, never a hidden multiplier.
 export function makeCaptain(cfg) {
-  const s = cfg.stats;
+  const s = Object.assign({ arcana: 0, spirit: 0 }, cfg.stats);
   const call = CALLINGS.find(x => x.id === cfg.calling) || CALLINGS[0];
   const b = call.base;
+  const w = WEAPONS[cfg.look && cfg.look.weapon] || WEAPONS.sword;
+  const ranged = call.id === 'ranger' || call.id === 'mage';
+  const wDmg = ranged ? 0 : (w.dmg || 0);
   const def = Object.assign({}, CAPTAIN_BASE, {
     name: call.name, role: call.name,
     hp: b.hp + s.vigour * 4,
     mov: b.mov + s.haste,
-    armor: b.armor + s.plate,
-    range: b.range, minRange: b.minRange || 1,
-    flankBonus: b.flankBonus || 0,
-    atk: [b.atk[0] + s.might * 2, b.atk[1] + s.might * 2],
+    armor: b.armor + s.plate + (ranged ? 0 : (w.armor || 0)),
+    range: ranged ? b.range : Math.max(b.range, w.range || 1),
+    minRange: b.minRange || 1,
+    flankBonus: (b.flankBonus || 0) + (ranged ? 0 : (w.flank || 0)),
+    hitMod: ranged ? 0 : (w.hit || 0),
+    arcana: s.arcana * 2,
+    manaBonus: s.spirit * 2,
+    atk: [Math.max(1, b.atk[0] + s.might * 2 + wDmg), Math.max(2, b.atk[1] + s.might * 2 + wDmg)],
     abilities: [call.sigs.includes(cfg.sig) ? cfg.sig : call.sigs[0]],
     blurb: CAPTAIN_BASE.blurb,
   });
@@ -171,6 +180,14 @@ function render() {
     d.addEventListener('click', () => { state.origin = o.id; render(); });
     ob.appendChild(d);
   }
+  {
+    const oSel = ORIGINS.find(x => x.id === state.origin) || ORIGINS[0];
+    const lore = document.createElement('div');
+    lore.className = 'blurb';
+    lore.style.cssText = 'flex-basis:100%;margin-top:6px;padding:8px 10px;border-left:2px solid #6b5741;opacity:.9';
+    lore.textContent = oSel.past;
+    ob.appendChild(lore);
+  }
 
   // ---- presets, then stats
   const pr = $('presetRow');
@@ -234,12 +251,40 @@ function render() {
 
   // ---- bearing
   optButtons('optHelm', CUSTOM_OPTIONS.helm, state.look.helm, (v) => { state.look.helm = v; render(); });
-  optButtons('optWeapon', CUSTOM_OPTIONS.weapon, state.look.weapon, (v) => {
+  const callSel = CALLINGS.find(x => x.id === state.calling) || CALLINGS[0];
+  const boundArm = callSel.id === 'ranger' ? 'bow' : callSel.id === 'mage' ? 'staff' : null;
+  const armOpts = boundArm
+    ? [{ id: boundArm, label: WEAPONS[boundArm].name }]
+    : CUSTOM_OPTIONS.weapon.filter(o => WEAPONS[o.id] && o.id !== 'bow' && o.id !== 'staff')
+        .map(o => {
+          const w = WEAPONS[o.id];
+          const bits = [];
+          if (w.dmg) bits.push((w.dmg > 0 ? '+' : '') + w.dmg + ' dmg');
+          if (w.hit) bits.push((w.hit > 0 ? '+' : '') + w.hit + ' hit');
+          if (w.range > 1) bits.push('reach ' + w.range);
+          if (w.flank) bits.push('+' + w.flank + ' flank');
+          if (w.armor) bits.push('+' + w.armor + ' armour');
+          return { id: o.id, label: w.name + (bits.length ? ' \u00b7 ' + bits.join(', ') : '') };
+        });
+  if (boundArm && state.look.weapon !== boundArm) state.look.weapon = boundArm;
+  if (!boundArm && (state.look.weapon === 'bow' || state.look.weapon === 'staff')) state.look.weapon = 'sword';
+  optButtons('optWeapon', armOpts, state.look.weapon, (v) => {
     state.look.weapon = v;
     swingStart = performance.now();
     play(WEAPON_SOUND[v] || 'hit');
     render();
   });
+  {
+    const wSel = WEAPONS[state.look.weapon] || WEAPONS.sword;
+    const box = $('optWeapon');
+    if (box) {
+      const lore = document.createElement('div');
+      lore.className = 'blurb';
+      lore.style.cssText = 'flex-basis:100%;margin-top:4px;opacity:.8';
+      lore.textContent = wSel.lore;
+      box.appendChild(lore);
+    }
+  }
   optButtons('optPlume', CUSTOM_OPTIONS.plume, state.look.plume, (v) => { state.look.plume = v; render(); });
   optButtons('optBuild', CUSTOM_OPTIONS.build, state.look.bulk, (v) => { state.look.bulk = v; render(); });
   swatches('optCloth', CUSTOM_OPTIONS.cloth, state.look.cloth, (v) => { state.look.cloth = v; render(); });

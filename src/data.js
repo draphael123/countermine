@@ -167,6 +167,11 @@ export const ABILITIES = {
     name: 'Collapse the Roof', cd: 4, target: 'windup_col', kind: 'windup', dmg: [12, 18],
     telegraphTurns: 1, desc: 'Brings a whole column of ceiling down.',
   },
+  e_breach: {
+    name: 'BREACH', cd: 4, target: 'windup_row', kind: 'windup', dmg: [9, 14],
+    telegraphTurns: 1,
+    desc: 'Telegraphs a whole lane, then comes down it -- through soldiers, barricades, and the wall itself.',
+  },
   e_summon: {
     name: 'Call the Starving', cd: 3, target: 'self', kind: 'summon', unit: 'starveling', count: 2,
     desc: 'Whistles up whatever is still living in the rubble.',
@@ -232,7 +237,7 @@ export const CALLINGS = [
   },
 ];
 
-export const ALLOTMENT = 6;
+export const ALLOTMENT = 8;
 export const STAT_LINES = [
   { id: 'vigour', name: 'Vigour', max: 3, per: 4, unit: 'health',
     text: '+4 maximum health a point. More rounds on your feet.' },
@@ -242,7 +247,22 @@ export const STAT_LINES = [
     text: '+1 armour a point, taken off every hit. Useless against bleeding and fire.' },
   { id: 'might', name: 'Might', max: 3, per: 2, unit: 'damage',
     text: '+2 damage a point on every attack you make.' },
+  { id: 'arcana', name: 'Arcana', max: 3, per: 2, unit: 'sig power',
+    text: '+2 a point on signature damage AND healing. The weapon arm never benefits.' },
+  { id: 'spirit', name: 'Spirit', max: 3, per: 2, unit: 'mana',
+    text: '+2 company mana a point. The whole company draws on your will.' },
 ];
+// The arm is a build choice: range, weight, and how honest the swing is.
+export const WEAPONS = {
+  sword: { name: 'Sword',  dmg: 0,  hit: 0,   lore: 'Issue steel, third pattern. It has outlived two owners and holds an edge out of habit.' },
+  maul:  { name: 'Maul',   dmg: 2,  hit: -10, lore: 'A miner\u2019s maul from before the siege. It was breaking stone while you were learning to walk; men are softer.' },
+  knife: { name: 'Knife',  dmg: -1, hit: 5, flank: 2, lore: 'Short, quick, and honest about nothing. Loves a turned back.' },
+  pole:  { name: 'Billhook', dmg: -1, range: 2, lore: 'Farm tool, then wall weapon. Reaches over a shoulder and pulls the fight to you.' },
+  shield:{ name: 'Shield', dmg: -2, armor: 1, lore: 'A pavise cut down to one arm. You stopped counting the bolts in it.' },
+  bow:   { name: 'Bow', dmg: 0, hit: 0, lore: 'Laminated horn, kept dry eleven years. The string is worth more than the quartermaster\u2019s ledger.' },
+  staff: { name: 'Staff', dmg: 0, hit: 0, lore: 'Cut from a gallery prop that would not burn. Whatever is in the deep stone came up the grain.' },
+};
+
 export const SIGNATURES = ['sig_rally', 'sig_hold', 'sig_hew', 'sig_ember', 'sig_grave', 'sig_oath'];
 
 // Where the captain was before the stair. A past, and one small edge from it —
@@ -395,7 +415,7 @@ export const BOSSES = {
   breacher: {
     id: 'breacher', name: 'THE BREACHER', short: 'BCH', boss: true,
     hp: 90, mov: 3, armor: 3, range: 1, atk: [9, 13],
-    abilities: ['e_smash', 'e_summon'], threat: 12,
+    abilities: ['e_smash', 'e_breach'], threat: 12,
     blurb: 'It brought the wall down on both armies and then kept working.',
   },
   choirmaster: {
@@ -431,17 +451,17 @@ export const RELICS = [
     text: '+30 gold from every battle.' },
   { id: 'quarrels', name: 'Long Watch Quarrels', cost: 90, locked: false,
     text: 'The crossbow starts every battle with a free extra shot in hand.' },
-  { id: 'oil', name: 'Oil-Soaked Rags', cost: 110, locked: true,
+  { id: 'oil', name: 'Oil-Soaked Rags', cost: 110, locked: true, boss: 'breacher',
     text: 'Your attacks set the target burning: 3 damage a turn for 2 turns.' },
-  { id: 'charts', name: 'Countermine Charts', cost: 90, locked: true,
+  { id: 'charts', name: 'Countermine Charts', cost: 90, locked: true, boss: 'undermaster',
     text: 'Camps also patch every unit for 6, and vendor prices drop by a fifth.' },
-  { id: 'reliquary', name: 'Cracked Reliquary', cost: 140, locked: true,
+  { id: 'reliquary', name: 'Cracked Reliquary', cost: 140, locked: true, boss: 'choirmaster',
     text: 'The first of yours to fall each battle bursts for 10 to everything adjacent.' },
-  { id: 'sallyport', name: 'Sallyport Key', cost: 100, locked: true,
+  { id: 'sallyport', name: 'Sallyport Key', cost: 100, locked: true, boss: 'breacher',
     text: 'Deploy one column further forward.' },
-  { id: 'grudge', name: 'Pikemans Grudge', cost: 100, locked: true,
+  { id: 'grudge', name: 'Pikemans Grudge', cost: 100, locked: true, boss: 'choirmaster',
     text: 'Attacks made at range 2 or more deal +3.' },
-  { id: 'ironrations', name: 'Cold Iron Rations', cost: 120, locked: true,
+  { id: 'ironrations', name: 'Cold Iron Rations', cost: 120, locked: true, boss: 'undermaster',
     text: 'Every surviving unit heals 6 after each battle.' },
 ];
 
