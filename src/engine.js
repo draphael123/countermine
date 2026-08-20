@@ -98,6 +98,20 @@ export function newBattle(cfg) {
   };
   st.grid = generateMap(rng, cfg.floor, st.kind);
 
+  // THE BAILIFF: a caged prisoner stands mid-field; break it and they fight for you
+  if (st.kind === 'boss' && (cfg.enemies || []).some(id => (BOSSES[id] || {}).cage)) {
+    const cx2 = Math.floor(GW * 0.55), cy2 = Math.floor(GH / 2);
+    outer:
+    for (let ry = 0; ry < 4; ry++) for (const sy of [cy2 + ry, cy2 - ry]) {
+      const t = st.grid[sy] && st.grid[sy][cx2];
+      if (t && t.t === T.FLOOR && !t.bar) {
+        t.bar = { hp: 8, cage: true };
+        st.cageAt = { x: cx2, y: sy };
+        break outer;
+      }
+    }
+  }
+
   const hasSally = st.relics.has('sallyport');
   const zoneW = 2, zoneX0 = hasSally ? 1 : 0;
   for (let x = zoneX0; x < zoneX0 + zoneW; x++) {
@@ -465,6 +479,7 @@ export function damageProfile(st, attacker, target, opts = {}) {
   const dist = Math.abs(attacker.x - target.x) + Math.abs(attacker.y - target.y);
   let flat = 0;
   if (hasStatus(attacker, 'rallied')) flat += 3;
+  if (attacker.side === 'enemy' && hasStatus(target, 'marked')) flat += (getStatus(target, 'marked').val || 3);
   if (opts.dmg && attacker.def && attacker.def.arcana) flat += attacker.def.arcana;
   if (isFlanking(st, attacker, target, dist)) {
     flat += (st.relics.has('flensing') ? FLANK_BONUS * 2 : FLANK_BONUS)
@@ -487,7 +502,19 @@ export function applyDamage(st, target, amount, source, opts = {}) {
     if (!t.bar) return 0;
     t.bar.hp -= opts.pierce ? t.bar.hp : amount;
     st.fx.push({ kind: 'hit', x: target.x, y: target.y, t: 0, amount });
-    if (t.bar.hp <= 0) { t.bar = null; logLine(st, 'The barricade comes apart.'); }
+    if (t.bar.hp <= 0) {
+      const wasCage = t.bar.cage;
+      t.bar = null;
+      if (wasCage) {
+        const freed = makeUnit('billman', 'player', target.x, target.y, { name: 'The Freed' });
+        freed.acted = true; freed.summoned = true;
+        st.units.push(freed);
+        st.fx.push({ kind: 'snd', s: 'recruit' });
+        logLine(st, 'The cage breaks open. The prisoner picks up a bill.');
+      } else {
+        logLine(st, 'The barricade comes apart.');
+      }
+    }
     return amount;
   }
   // Martyr redirect. noRedirect breaks the cycle when two units protect each
@@ -959,6 +986,25 @@ export function endPlayerPhase(st) {
   }
   st.enemyQueue = st.units.filter(u => u.alive && u.side === 'enemy')
     .sort((a, b) => (b.def.threat || 0) - (a.def.threat || 0)).map(u => u.uid);
+  // THE VERDERER: mark the nearest soldier as QUARRY -- everything lands +3 on them
+  const hunter = st.units.find(u => u.alive && u.side === 'enemy' && u.def.quarry);
+  if (hunter) {
+    for (const p of st.units) if (p.side === 'player') p.statuses = p.statuses.filter(s => s.id !== 'marked');
+    const prey = st.units.filter(u => u.alive && u.side === 'player')
+      .sort((a, b) => (Math.abs(a.x - hunter.x) + Math.abs(a.y - hunter.y)) - (Math.abs(b.x - hunter.x) + Math.abs(b.y - hunter.y)))[0];
+    if (prey) {
+      addStatus(prey, 'marked', 2, 3);
+      st.fx.push({ kind: 'snd', s: 'warn' });
+      logLine(st, hunter.name + ' marks ' + prey.name + ' as quarry.');
+    }
+  }
+  // THE HORN-REEVE: every second round the horn drives all his men a tile further
+  const reeve = st.units.find(u => u.alive && u.side === 'enemy' && u.def.horncall);
+  if (reeve && st.round % 2 === 0) {
+    for (const u of st.units) if (u.alive && u.side === 'enemy' && u !== reeve) addStatus(u, 'hasted', 1, 0);
+    st.fx.push({ kind: 'snd', s: 'warn' });
+    logLine(st, 'The horn sounds. They surge.');
+  }
   checkOver(st);
 }
 

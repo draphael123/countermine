@@ -104,7 +104,7 @@ function buildSteps() {
     {
       title: 'Set the line', anchor: 'party',
       text: 'This is your whole company: <b>you</b>. The rest of it is chained in cells '
-        + 'all over these levels — look for <b>Prisoner</b> stops on the map to grow the company.<br><br>'
+        + 'all over the province — look for <b>Prisoner</b> stops on the map to grow the company.<br><br>'
         + 'Before a fight starts you can place yourself: <b>click your captain, then click a lit tile</b>.',
     },
     {

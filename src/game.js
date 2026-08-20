@@ -45,7 +45,7 @@ function saveSettings() { try { localStorage.setItem(SET_KEY, JSON.stringify(set
 
 const DIFF = {
   merciful: { enemyDmg: 0.8, budget: 0.85, label: 'Merciful', note: 'Fewer of them, and they hit softer. For learning the board.' },
-  regular: { enemyDmg: 1.0, budget: 1.0, label: 'Regular', note: 'The siege as it was.' },
+  regular: { enemyDmg: 1.0, budget: 1.0, label: 'Regular', note: 'The campaign as it was.' },
   bitter: { enemyDmg: 1.15, budget: 1.2, label: 'Bitter', note: 'More of them, hitting harder. Recruits die.' },
 };
 
@@ -298,7 +298,7 @@ function openMap() {
   $('mapScreen').style.backgroundImage =
     'radial-gradient(ellipse 85% 55% at 50% 0%, ' + f.palette.accent + '22, transparent 62%),' +
     'linear-gradient(180deg, #0d0b09, #070605)';
-  $('floorName').textContent = 'FLOOR ' + f.n + ' — ' + f.name;
+  $('floorName').textContent = 'MARCH ' + f.n + ' — ' + f.name;
   $('floorSub').textContent = f.sub;
   tweenNum($('goldNum'), run.gold);
   $('manaNum').textContent = run.mana + '/' + run.manaMax;
@@ -435,7 +435,7 @@ function drawMap() {
 // Saved at every return to the map and at every battle start. The RNG state is
 // serialized too, so a resumed dungeon deals the same cards it was going to.
 // Known edge: closing during the post-fight recruit screen replays that fight.
-const RUN_KEY = 'countermine_run_v1';
+const RUN_KEY = 'countermine_run_v2'; // v2: THE UNSIGNED, 4 marches
 
 function saveRun(pendingNodeId) {
   if (!run) return;
@@ -577,7 +577,7 @@ function startBattle(node) {
   view.threat = settings.threatDefault ? E.threatMap(st) : null;
   view.selected = null; view.moveTiles = null; view.targetTiles = null; view.path = null;
   mode = 'idle';
-  $('floorTag').textContent = 'Floor ' + floor.n + ' · ' + floor.name + ' · ' + NODE_ART[node.type].label;
+  $('floorTag').textContent = 'March ' + floor.n + ' · ' + floor.name + ' · ' + NODE_ART[node.type].label;
   showScreen('battle');
   if (!tutorialFight) setTimeout(() => tip('mana'), 900);
   if (kind === 'boss') {
@@ -1147,7 +1147,7 @@ function screenPrisoner() {
   $('mEyebrow').textContent = full ? 'A prisoner — the company is full at four' : 'A prisoner — choose what they were';
   $('mTitle').textContent = 'CHAINED IN THE DARK';
   $('mLede').innerHTML = 'Someone is shackled to the wall, half-starved but breathing. They say their name is <b>' + pname + '</b>. '
-    + 'They do not say what they were before the siege — <b>you decide what to believe.</b>';
+    + 'They do not say what they were before the war — <b>you decide what to believe.</b>';
   const box = $('mChoices');
   box.innerHTML = '';
   for (const defId of roles) {
@@ -1291,7 +1291,7 @@ function screenCamp() {
     run.mana = Math.min(run.manaMax, run.mana + 5);
     advanceFrom(pendingNode);
   });
-  opt('Drill', 'One soldier, +6 maximum health', 'Permanent for the rest of the dig. Pick the one who keeps surviving.', () => {
+  opt('Drill', 'One soldier, +6 maximum health', 'Permanent for the rest of the campaign. Pick the one who keeps surviving.', () => {
     $('mEyebrow').textContent = 'Rest — pick a soldier';
   $('mTitle').textContent = 'WHO DRILLS';
     $('mLede').textContent = '';
@@ -1477,14 +1477,14 @@ function runLost(dead) {
       if (settings.difficulty === 'regular') {
         const soft = document.createElement('button');
         soft.textContent = 'Try Merciful (fewer foes, softer hits)';
-        soft.addEventListener('click', () => { settings.difficulty = 'merciful'; saveSettings(); soft.textContent = 'Merciful set for the next dig'; soft.disabled = true; });
+        soft.addEventListener('click', () => { settings.difficulty = 'merciful'; saveSettings(); soft.textContent = 'Merciful set for the next campaign'; soft.disabled = true; });
         foot.appendChild(soft);
       }
     }, 50);
   }
   $('mTitle').textContent = 'THE COMPANY IS GONE';
-  $('mLede').textContent = 'Floor ' + (run.floorIdx + 1) + '. ' + run.kills + ' of theirs, ' + run.losses + ' of yours. '
-    + 'Somebody will scratch the tally on the wall by the stair.';
+  $('mLede').textContent = 'March ' + (run.floorIdx + 1) + '. ' + run.kills + ' of theirs, ' + run.losses + ' of yours. '
+    + 'Somebody will cut the tally into a roadside oak.';
   renderEpitaph(banked, false);
   if (freshCls.length) banner(freshCls.join(' & ').toUpperCase() + (freshCls.length > 1 ? ' JOIN' : ' JOINS') + ' THE RECRUIT POOL', 2600);
   $('mFoot').innerHTML = '';
@@ -1495,7 +1495,7 @@ function runLost(dead) {
   muster.textContent = 'Relics';
   muster.addEventListener('click', screenRelics);
   const home = document.createElement('button');
-  home.textContent = 'Back to the surface';
+  home.textContent = 'Back to the muster';
   home.addEventListener('click', goTitle);
   $('mFoot').append(again, muster, home);
 }
@@ -1505,22 +1505,22 @@ function runWon() {
   for (const p of run.party) recordFate(p, 'returned', 3);
   if (settings.sound !== false) play('bell');
   const banked = Math.round(run.gold * 0.5) + run.kills * 4 + 200;
-  meta.tallies += banked; meta.wins++; meta.deepest = 3;
+  meta.tallies += banked; meta.wins++; meta.deepest = FLOORS.length;
   const freshCls = unlockClassesByTallies();
   saveMeta();
   showScreen('modal');
-  $('mEyebrow').textContent = 'You got out';
-  $('mTitle').textContent = 'THE COUNTERMINE ENDS';
-  $('mLede').textContent = 'It ends in a room neither army dug, and the digging stops. '
-    + run.party.map(p => p.name).join(', ') + ' walk back up.';
+  $('mEyebrow').textContent = 'The Greenmarch is the crown\u2019s again';
+  $('mTitle').textContent = 'THE FIRST NAME IS CROSSED OUT';
+  $('mLede').textContent = 'Aldergrave\u2019s banner comes down over the palisade, and the roads open. '
+    + run.party.map(p => p.name).join(', ') + ' march out under the trees. Five names left.';
   renderEpitaph(banked, true);
   if (freshCls.length) banner(freshCls.join(' & ').toUpperCase() + (freshCls.length > 1 ? ' JOIN' : ' JOINS') + ' THE RECRUIT POOL', 2600);
   $('mFoot').innerHTML = '';
   const again = document.createElement('button');
-  again.textContent = 'Go down again';
+  again.textContent = 'March again';
   again.addEventListener('click', screenCreator);
   const home = document.createElement('button');
-  home.textContent = 'The surface';
+  home.textContent = 'Back to the muster';
   home.addEventListener('click', goTitle);
   $('mFoot').append(again, home);
 }
@@ -1528,9 +1528,9 @@ function runWon() {
 // ================================================================ the roster
 function screenRelics() {
   showScreen('modal');
-  $('mEyebrow').textContent = 'Trophies of the dig \u2014 permanent, between runs';
+  $('mEyebrow').textContent = 'Trophies of the campaign \u2014 permanent, between runs';
   $('mTitle').textContent = 'RELICS';
-  $('mLede').innerHTML = 'What the company can find and buy below. The locked ones are carried by the floor bosses \u2014 '
+  $('mLede').innerHTML = 'What the company can find and buy on the road. The locked ones are carried by the captains and generals \u2014 '
     + 'kill the bearer once and its relics join the pool for every run after. '
     + 'New CLASSES join the recruit pool on their own as your lifetime tallies grow (you have <span class="tally">' + meta.tallies + '</span>).';
   const box = $('mChoices');
@@ -1576,10 +1576,12 @@ const KEYWORDS = {
   guarded: 'Guarded: incoming hits are reduced while this holds.',
   rallied: 'Rallied: +3 damage on every attack while this holds.',
   'off-balance': 'Off-balance: the next hit is worse.',
+  marked: 'Quarry: the Verderer has marked this soldier — every enemy blow lands +3 on them until your next turn.',
+  quarry: 'Quarry: the Verderer has marked this soldier — every enemy blow lands +3 on them until your next turn.',
 };
 function kw(text) {
   if (!text) return text;
-  return text.replace(/(bleeding|bleed|burning|pinned|hasted|guarded|rallied)/gi,
+  return text.replace(/(bleeding|bleed|burning|pinned|hasted|guarded|rallied|marked|quarry)/gi,
     (m) => '<u class="kw" title="' + (KEYWORDS[m.toLowerCase()] || '') + '">' + m + '</u>');
 }
 
@@ -1595,7 +1597,7 @@ const TIPS = {
   fullparty: ['Four is the cap', 'Taking a fifth means leaving one of yours in the dark — and that is a death, not a bench. Gold is the safe answer.'],
   death: ['Nobody comes back', 'That soldier is gone for the run, and the next fights scale to the company you still have. Retreat is a real option — a hurt soldier pulled back is a soldier kept.'],
   tallies: ['Tallies', 'The one thing that survives a run. They climb forever, and new CLASSES join the recruit pool on their own as they grow. Relics are different \u2014 those are taken off the floor bosses.'],
-  boss: ['The floor’s master', 'Bosses hit harder, call for help, and hold the only stair down. Spend your cooldowns — there is nothing after this worth saving them for.'],
+  boss: ['The one who holds this map', 'Captains and generals hit harder, bring their own tricks, and hold the only road forward. Spend your cooldowns — there is nothing after this worth saving them for.'],
   prisoner: ['Prisoners', 'This is how the company grows — battles pay gold, prisoners pay PEOPLE. You cannot pick who they are, only what they turn out to be.'],
   hitchance: ['Hit Chance', 'Blows can MISS now. Base 90: flanking +8, a pinned target +15, and a defender hugging a wall or barricade against a shot takes -20. The forecast shows the number before you commit \u2014 and a survivor in reach ANSWERS at three-quarter strength.'],
   mana: ['Mana', 'Abilities cost MANA from one pool the whole company shares — the number under the party list. It does not come back on its own: sleep at camps, buy incense from the quartermaster, or descend a floor.'],
@@ -1741,7 +1743,7 @@ document.addEventListener('pointerdown', () => setVolumes(settings.volMaster, se
       const d = document.createElement('div');
       d.className = 'choice';
       d.innerHTML = '<h3>Fullscreen<span class="costTag">' + (document.fullscreenElement ? 'ON' : 'OFF') + '</span></h3>'
-        + '<div class="role">Click to toggle</div><div class="blurb">The dig, wall to wall.</div>';
+        + '<div class="role">Click to toggle</div><div class="blurb">The campaign, edge to edge.</div>';
       d.addEventListener('click', () => {
         if (document.fullscreenElement) document.exitFullscreen();
         else document.documentElement.requestFullscreen().catch(() => {});
@@ -1754,7 +1756,7 @@ document.addEventListener('pointerdown', () => setVolumes(settings.volMaster, se
       d.className = 'choice';
       d.innerHTML = '<h3>Replay the lesson</h3><div class="role">Click to reset it</div>'
         + '<div class="blurb">The guided first fight runs again at the start of your next new run.</div>';
-      d.addEventListener('click', () => { meta.seenTutorial = false; saveMeta(); d.querySelector('.role').textContent = 'It will run next dig'; });
+      d.addEventListener('click', () => { meta.seenTutorial = false; saveMeta(); d.querySelector('.role').textContent = 'It will run next campaign'; });
       box.appendChild(d);
     }
     {
@@ -1839,7 +1841,7 @@ document.addEventListener('pointerdown', () => setVolumes(settings.volMaster, se
       d5.className = 'choice';
       const armed = screenSettings.armAbandon;
       d5.innerHTML = '<h3 style="color:#c25a3e">' + (armed ? 'Click again to abandon' : 'Abandon the run') + '</h3>'
-        + '<div class="role">The company stays down there</div><div class="blurb">' + (armed ? 'This ends the run as a loss. There is no coming back for them.' : 'Give up this descent. Tallies and unlocks keep; the company does not.') + '</div>';
+        + '<div class="role">The company stays in the Greenmarch</div><div class="blurb">' + (armed ? 'This ends the run as a loss. There is no coming back for them.' : 'Give up this campaign. Tallies and unlocks keep; the company does not.') + '</div>';
       d5.addEventListener('click', () => {
         if (!screenSettings.armAbandon) { screenSettings.armAbandon = true; render(); return; }
         screenSettings.armAbandon = false;
@@ -1865,20 +1867,23 @@ document.addEventListener('pointerdown', () => setVolumes(settings.volMaster, se
 // =================================================================== intro
 const INTRO = [
   {
-    h: 'ELEVEN YEARS AGO',
-    p: 'The besiegers dug a mine under the east wall. The garrison dug a countermine to meet it. '
-      + 'Both tunnels broke into something older, and the fighting went down into it, and the fighting never stopped.',
+    h: 'THE WAR ENDED IN A DAY',
+    p: 'Eleven years of it, signed away one grey morning at a table nobody bled at. '
+      + 'Six generals read the armistice, and six generals did not sign. They kept their armies, '
+      + 'carved off a province each, and called it peace on their own terms.',
   },
   {
-    h: 'WHAT COMES UP',
-    p: 'Nothing comes up. Sometimes there is a sound from the stair, and once a man in the wrong colours, '
-      + 'who could not say which year he thought it was.',
+    h: 'THE GREENMARCH',
+    p: 'The first of them holds the great forest: General Aldergrave, behind three captains, '
+      + 'a palisade of whole oaks, and every road in or out. The crown cannot raise another army. '
+      + 'It can raise you.',
   },
   {
     h: 'YOUR COMPANY',
-    p: 'You go down alone. Everyone you will fight beside is chained down there already — both armies took '
-      + 'prisoners for eleven years and forgot to stop. Free them, decide what they were, and they are yours. '
-      + 'Four is all the rations stretch to, and nobody you lose comes back.',
+    p: 'You go in alone, carrying the writ. Everyone you will fight beside is in the generals\u2019 cages '
+      + 'already \u2014 they kept prisoners through the whole war and never stopped taking them. '
+      + 'Free them, decide what they were, and they are yours. Four is all the rations stretch to, '
+      + 'and nobody you lose comes back.',
   },
 ];
 
@@ -1903,7 +1908,7 @@ function screenIntro(idx) {
   $('mChoices').appendChild(wrap);
   $('mFoot').innerHTML = '';
   const next = document.createElement('button');
-  next.textContent = idx < INTRO.length - 1 ? 'Go on' : 'Take the stair';
+  next.textContent = idx < INTRO.length - 1 ? 'Go on' : 'Take the road';
   next.addEventListener('click', () => {
     if (idx < INTRO.length - 1) screenIntro(idx + 1);
     else { meta.seenIntro = true; saveMeta(); screenCreator(); }
@@ -1940,7 +1945,7 @@ function goTitle() {
     const b = document.createElement('button');
     b.id = 'btnContinue';
     b.className = 'primary';
-    b.textContent = 'Continue — Floor ' + (d.floorIdx + 1) + ', ' + d.party.length
+    b.textContent = 'Continue — March ' + (d.floorIdx + 1) + ', ' + d.party.length
       + (d.party.length === 1 ? ' soldier' : ' soldiers');
     b.addEventListener('click', () => { if (!resumeRun()) goTitle(); });
     $('btnStart').before(b);
@@ -2045,7 +2050,7 @@ $('btnMuster').addEventListener('click', screenRelics);
 $('threatBtn').addEventListener('click', toggleThreat);
 $('endBtn').addEventListener('click', endTurnRequest);
 $('btnAbandon').addEventListener('click', () => {
-  if (!confirm('Abandon the dig? The company is written off.')) return;
+  if (!confirm('Abandon the campaign? The company is written off.')) return;
   runLost([]);
 });
 

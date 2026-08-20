@@ -343,9 +343,10 @@ let BAR = 3.8;                         // seconds per bar (floor can slow it)
 let ROOTS = [55, 41.2, 65.4, 49];      // A1, E1, C2, G1 -- a slow minor wander
 // each floor owns a progression and a pace
 const FLOOR_MUSIC = {
-  1: { roots: [55, 41.2, 65.4, 49], bar: 3.8 },        // the Breach: A minor wander
-  2: { roots: [49, 36.7, 58.3, 43.7], bar: 4.6 },      // the Sump: lower, slower
-  3: { roots: [61.7, 46.2, 73.4, 55], bar: 3.2 },      // the Countermine: tighter, urgent
+  1: { roots: [55, 41.2, 65.4, 49], bar: 3.8 },        // the Eaves: A minor wander
+  2: { roots: [49, 36.7, 58.3, 43.7], bar: 4.6 },      // the Deep Rides: lower, slower
+  3: { roots: [61.7, 46.2, 73.4, 55], bar: 3.2 },      // the Burned Clearings: urgent
+  4: { roots: [65.4, 49, 82.4, 61.7], bar: 3.5 },      // the General's Court: higher, colder
 };
 export function setMusicFloor(n) {
   const f = FLOOR_MUSIC[n] || FLOOR_MUSIC[1];

@@ -210,10 +210,10 @@ export function draw(ctx, st, view) {
       const { px, py } = tileToPx(x, y);
       if (tile.t === T.WALL) {
         if (tile.prop) ctx.drawImage(propTile(TILE, tile.prop, pal.floor, tile.rubbleSeed), px, py);
-        else ctx.drawImage(wallTile(TILE, pal.wall, tile.rubbleSeed), px, py);
+        else ctx.drawImage(wallTile(TILE, pal.wall, tile.rubbleSeed, pal.wallStyle), px, py);
       } else if (tile.t === T.PIT) {
         // the shaft: floor-coloured rim collapsing into black, far lip lit
-        ctx.drawImage(floorTile(TILE, pal.floor, tile.rubbleSeed), px, py);
+        ctx.drawImage(floorTile(TILE, pal.floor, tile.rubbleSeed, pal.ground), px, py);
         const cx2 = px + TILE / 2, cy2 = py + TILE / 2;
         const gr = ctx.createRadialGradient(cx2, cy2 + 3, 2, cx2, cy2, TILE * 0.62);
         gr.addColorStop(0, '#000');
@@ -250,7 +250,7 @@ export function draw(ctx, st, view) {
         ctx.stroke();
         ctx.restore();
       } else {
-        ctx.drawImage(floorTile(TILE, pal.floor, tile.rubbleSeed), px, py);
+        ctx.drawImage(floorTile(TILE, pal.floor, tile.rubbleSeed, pal.ground), px, py);
       }
     }
   }
@@ -516,7 +516,7 @@ export function draw(ctx, st, view) {
 
   // ---- the Breach is open to the sky somewhere: one shaft of day, floor 1 only
   const atmos = !view.reducedMotion && view.atmosphere !== false;
-  if (view.floorN === 1 && atmos) {
+  if (atmos) {          // canopy light falls on every march of the Greenmarch
     const sx0 = CW * 0.60, wTop = 54, lean = 90;
     ctx.save();
     const lg = ctx.createLinearGradient(sx0 + lean * 0.5, 0, sx0 + lean * 0.5 + 40, CH);
@@ -561,9 +561,10 @@ export function draw(ctx, st, view) {
 
   // ---- floor grade: one tint unifies each floor's palette
   const GRADE = {
-    1: 'rgba(212,140,70,0.035)',
-    2: 'rgba(70,130,130,0.05)',
-    3: 'rgba(200,72,40,0.045)',
+    1: 'rgba(214,200,90,0.05)',   // dawn through the eaves
+    2: 'rgba(60,140,80,0.055)',   // deep green rides
+    3: 'rgba(210,140,60,0.05)',   // smoke over the clearings
+    4: 'rgba(224,190,80,0.05)',   // the general's gold
   };
   if (!view.highContrast) {
     ctx.fillStyle = GRADE[view.floorN] || GRADE[1];
@@ -575,7 +576,7 @@ export function draw(ctx, st, view) {
   if (!view.highContrast) {
     const vg = ctx.createRadialGradient(CW / 2, CH / 2, CH * 0.5, CW / 2, CH / 2, CH * 1.15);
     vg.addColorStop(0, 'rgba(0,0,0,0)');
-    vg.addColorStop(1, 'rgba(0,0,0,0.38)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.26)');
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, CW, CH);
   }
@@ -1101,6 +1102,7 @@ function drawStatusPips(ctx, st, u, bx, byTop) {
   if (hasStatus(u, 'hasted')) pips.push('#7fd0a0');
   if (hasStatus(u, 'martyred')) pips.push('#d07fa0');
   if (hasStatus(u, 'taunting')) pips.push('#d4823c');
+  if (hasStatus(u, 'marked')) pips.push('#e04040');
   pips.forEach((c, i) => {
     ctx.fillStyle = c;
     ctx.fillRect(bx + i * 5, byTop, 4, 4);

@@ -314,20 +314,21 @@ export const FIGURES = {
   flagellant: { cloth: '#584f45', metal: '#6f6a62', helm: 'hood', weapon: 'staff', bulk: 0.92, tabard: '#7a2a30', feature: 'rope' },
 
   // the other army -- colder, greyer, further gone
-  starveling: { cloth: '#565845', metal: '#5f5c54', helm: 'round', weapon: 'knife', bulk: 0.8, tall: 0.9, feature: 'hunch' },
-  trencher: { cloth: '#414e58', metal: '#6b7480', helm: 'bucket', weapon: 'pole', bulk: 1.06, feature: 'banner' },
-  arbalest: { cloth: '#5a4e42', metal: '#6f6a60', helm: 'round', weapon: 'bow', bulk: 0.9 },
-  ironhusk: { cloth: '#4a4744', metal: '#57534e', helm: 'bucket', weapon: 'maul', bulk: 1.35, tall: 1.1, feature: 'rivets' },
+  starveling: { cloth: '#5c6244', metal: '#6a6450', helm: 'round', weapon: 'knife', bulk: 0.8, tall: 0.9, feature: 'hunch' },
+  trencher: { cloth: '#48584a', metal: '#707a64', helm: 'bucket', weapon: 'pole', bulk: 1.06, feature: 'banner' },
+  arbalest: { cloth: '#5c5238', metal: '#78684a', helm: 'round', weapon: 'bow', bulk: 0.9 },
+  ironhusk: { cloth: '#4f4a3e', metal: '#6a5844', helm: 'bucket', weapon: 'maul', bulk: 1.35, tall: 1.1, feature: 'rivets' },
   hound: { cloth: '#6e5a4e', beast: true },
   bellman: { cloth: '#6b5c3d', metal: '#9b8455', helm: 'conical', weapon: 'bell', bulk: 0.95, feature: 'backbell' },
-  drowned: { cloth: '#3d5451', metal: '#4f6b6b', helm: 'hood', weapon: 'knife', bulk: 1.0, feature: 'weeds' },
+  drowned: { cloth: '#42564a', metal: '#587060', helm: 'hood', weapon: 'knife', bulk: 1.0, feature: 'weeds' },
   lobber: { cloth: '#4e4438', metal: '#6a5c48', helm: 'kettle', weapon: 'knife', bulk: 0.95, feature: 'firepot' },
   chanter: { cloth: '#3a4a48', metal: '#55706c', helm: 'hood', weapon: 'staff', robe: true, bulk: 0.95, feature: 'weeds' },
   pyreling: { cloth: '#3f3630', metal: '#57534e', helm: 'round', weapon: 'knife', bulk: 0.78, tall: 0.88, feature: 'cracks' },
 
-  breacher: { cloth: '#5a3a30', metal: '#7a4b3a', helm: 'bucket', weapon: 'maul', bulk: 1.7, tall: 1.3, feature: 'horns' },
-  choirmaster: { cloth: '#5f4d2c', metal: '#9b7d3a', helm: 'conical', weapon: 'bell', bulk: 1.5, tall: 1.25, tabard: '#8a6a20', feature: 'bells3' },
-  undermaster: { cloth: '#4a2d36', metal: '#7a3a4b', helm: 'hood', weapon: 'pole', bulk: 1.6, tall: 1.35, tabard: '#5a1f2a', feature: 'chains' },
+  verderer: { cloth: '#4a5a30', metal: '#7a6a4a', helm: 'hood', weapon: 'bow', bulk: 1.4, tall: 1.18, feature: 'quiver' },
+  bailiff: { cloth: '#4a4438', metal: '#8a7a5a', helm: 'bucket', weapon: 'maul', bulk: 1.5, tall: 1.2, tabard: '#5a4a2a', feature: 'chains' },
+  hornreeve: { cloth: '#6a5030', metal: '#b08a4a', helm: 'conical', weapon: 'maul', bulk: 1.55, tall: 1.25, tabard: '#8a5a20', feature: 'backbell' },
+  aldergrave: { cloth: '#3f5a2f', metal: '#c9a84a', helm: 'conical', weapon: 'sword', bulk: 1.65, tall: 1.3, tabard: '#d4b040', plume: '#c23a2e', feature: 'banner' },
 };
 
 // sprites for a SPEC (the creator's live look) or a def id; both share bakes
@@ -457,10 +458,47 @@ export const CUSTOM_OPTIONS = {
 // The single biggest "prototype" tell was the tile lattice: every tile
 // identically outlined reads as a debug grid. Real flagstones vary in VALUE
 // tile to tile, and their seams are broken lines that only sometimes show.
-export function floorTile(size, colour, seed) {
-  return bake('f:' + size + colour + seed, size, size, (g, W, H) => {
+export function floorTile(size, colour, seed, style) {
+  return bake('f:' + size + colour + seed + (style || ''), size, size, (g, W, H) => {
     let s = seed;
     const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+    if (style === 'grass' || style === 'scorch') {
+      // living ground: mottle, tufts, no masonry seams
+      const lift = ((seed % 7) - 3) * 4;
+      const base = shade(colour, lift + (style === 'scorch' ? -6 : 0));
+      g.fillStyle = base;
+      g.fillRect(0, 0, W, H);
+      const sun = g.createLinearGradient(0, 0, W, H);
+      sun.addColorStop(0, 'rgba(255,244,190,0.05)');
+      sun.addColorStop(1, 'rgba(10,20,0,0.06)');
+      g.fillStyle = sun;
+      g.fillRect(0, 0, W, H);
+      for (let i = 0; i < 26; i++) {  // mottled light
+        const v = rnd();
+        g.fillStyle = v > 0.5 ? 'rgba(235,255,180,0.05)' : 'rgba(0,25,0,0.07)';
+        const mw = 3 + (rnd() * 6 | 0);
+        g.fillRect(rnd() * W | 0, rnd() * H | 0, mw, 2 + (rnd() * 3 | 0));
+      }
+      const tufts = style === 'scorch' ? 8 : 16;
+      for (let i = 0; i < tufts; i++) { // grass blades / charred stalks
+        const tx = rnd() * W | 0, ty = 4 + rnd() * (H - 6) | 0;
+        g.fillStyle = style === 'scorch'
+          ? (rnd() > 0.5 ? 'rgba(30,24,18,0.8)' : 'rgba(90,70,40,0.6)')
+          : shade(colour, 18 + (rnd() * 22 | 0));
+        g.fillRect(tx, ty - 2, 1, 3);
+        if (rnd() > 0.6) g.fillRect(tx + 1, ty - 1, 1, 2);
+      }
+      if (style === 'scorch') { // drifting ash patches
+        for (let i = 0; i < 5; i++) {
+          g.fillStyle = 'rgba(200,190,180,0.06)';
+          g.fillRect(rnd() * W | 0, rnd() * H | 0, 4 + (rnd() * 7 | 0), 3 + (rnd() * 4 | 0));
+        }
+      } else if (rnd() > 0.8) { // the odd wildflower
+        g.fillStyle = rnd() > 0.5 ? '#d8c96a' : '#c07898';
+        g.fillRect(rnd() * W | 0, rnd() * H | 0, 2, 2);
+      }
+      return;
+    }
     // per-slab value shift: adjacent tiles differ, so the floor reads as laid
     // stone instead of a printed grid
     const lift = ((seed % 7) - 3) * 3;
@@ -510,11 +548,42 @@ export function floorTile(size, colour, seed) {
 // Walls are drawn as MASONRY WITH A TOP: a lit cap face (the surface you look
 // down on) over a dark front face with stone courses. That one division is
 // what makes a square read as three-dimensional on a top-down camera.
-export function wallTile(size, colour, seed) {
-  return bake('w:' + size + colour + seed, size, size, (g, W, H) => {
+export function wallTile(size, colour, seed, style) {
+  return bake('w:' + size + colour + seed + (style || ''), size, size, (g, W, H) => {
     let s = seed + 7;
     const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
     const capH = Math.round(H * 0.42);
+    if (style === 'thicket') {
+      // trunks in shadow under a sunlit canopy
+      const trunkGround = shade(colour, -40);
+      g.fillStyle = trunkGround;
+      g.fillRect(0, capH, W, H - capH);
+      let tx = 1 + (rnd() * 3 | 0);
+      while (tx < W - 3) {
+        const tw = 4 + (rnd() * 4 | 0);
+        const bark = shade('#4a3826', (rnd() * 18 - 9) | 0);
+        g.fillStyle = bark;
+        g.fillRect(tx, capH, tw, H - capH);
+        g.fillStyle = shade(bark, 16);
+        g.fillRect(tx, capH, 1, H - capH);   // lit edge
+        g.fillStyle = shade(bark, -20);
+        g.fillRect(tx + tw - 1, capH, 1, H - capH);
+        if (rnd() > 0.6) { g.fillStyle = shade(bark, -14); g.fillRect(tx + 1, capH + 6 + (rnd() * 14 | 0), tw - 2, 1); }
+        tx += tw + 2 + (rnd() * 3 | 0);
+      }
+      // canopy cap: clumped leaves, lit from the top left
+      g.fillStyle = shade(colour, -6);
+      g.fillRect(0, 0, W, capH + 3);
+      for (let i = 0; i < 34; i++) {
+        const lx = rnd() * W | 0, ly = rnd() * capH | 0;
+        const lit = (lx + ly) < (W + capH) * 0.45;
+        g.fillStyle = shade(colour, lit ? 16 + (rnd() * 18 | 0) : -(rnd() * 22 | 0));
+        g.fillRect(lx, ly, 2 + (rnd() * 4 | 0), 2 + (rnd() * 2 | 0));
+      }
+      g.fillStyle = 'rgba(0,0,0,0.5)';   // canopy shadow line onto the trunks
+      g.fillRect(0, capH + 2, W, 2);
+      return;
+    }
 
     // front face: dark courses of stone under the cap
     const front = shade(colour, -34);
@@ -839,14 +908,26 @@ export function titleSkyline(w, h) {
     g.lineTo(W, H);
     g.closePath();
     g.fill();
-    // the breach still glows faintly
-    const gl = g.createRadialGradient(W * 0.62, ridge + 14, 2, W * 0.62, ridge + 14, 60);
-    gl.addColorStop(0, 'rgba(224,120,50,0.35)');
-    gl.addColorStop(1, 'rgba(224,120,50,0)');
+    // a rough treeline over the ridge
+    g.fillStyle = '#101a0c';
+    let s2 = 977;
+    const rnd2 = () => { s2 = (s2 * 1103515245 + 12345) & 0x7fffffff; return s2 / 0x7fffffff; };
+    for (let x = 0; x < W; x += 7) {
+      const th = 10 + rnd2() * 26;
+      g.beginPath();
+      g.moveTo(x, ridge + 26);
+      g.lineTo(x + 4, ridge + 26 - th);
+      g.lineTo(x + 8, ridge + 26);
+      g.closePath(); g.fill();
+    }
+    // dawn behind the general's court
+    const gl = g.createRadialGradient(W * 0.62, ridge + 8, 2, W * 0.62, ridge + 8, 90);
+    gl.addColorStop(0, 'rgba(224,180,70,0.32)');
+    gl.addColorStop(1, 'rgba(224,180,70,0)');
     g.fillStyle = gl;
-    g.fillRect(W * 0.62 - 60, ridge - 46, 120, 120);
-    g.fillStyle = 'rgba(255,170,90,0.65)';
-    g.fillRect(W * 0.615, ridge + 8, 3, 3);
+    g.fillRect(W * 0.62 - 90, ridge - 60, 180, 150);
+    g.fillStyle = 'rgba(255,214,120,0.7)';
+    g.fillRect(W * 0.615, ridge + 2, 3, 3);
   });
 }
 

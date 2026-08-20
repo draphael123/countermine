@@ -1,6 +1,6 @@
-# COUNTERMINE
+# THE UNSIGNED
 
-A dark-fantasy tactics roguelike. Two armies broke into the under-levels of a
+A tactics roguelike. The war ended in a day; six generals never signed. Muster a captain, cross the Greenmarch — three captains, then the general — and raise your company from the prisoners in their cages.
 fortress eleven years ago and neither came back out. You take a Serjeant and one
 volunteer down after them, and recruit whoever is still standing.
 
