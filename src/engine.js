@@ -517,21 +517,23 @@ export function checkOver(st) {
 
 // --------------------------------------------------------------- unit acting
 // --------------------------------------------------------------- animation
+let ANIM_SCALE = 1;
+export function setAnimScale(v) { ANIM_SCALE = v; }
 // Purely visual: logic teleports as before, the renderer eases toward it.
 export function animWalk(u, path) {
   if (!path || path.length < 2) return;
   u.face = Math.sign(path[path.length - 1].x - path[0].x) || u.face || 1;
   u.anim = { kind: 'walk', path, start: performance.now(),
-    dur: Math.min(430, 130 * (path.length - 1)) };
+    dur: Math.min(430, 130 * (path.length - 1)) * ANIM_SCALE };
 }
 export function animHop(u, fx, fy) {
   u.face = Math.sign(u.x - fx) || u.face || 1;
-  u.anim = { kind: 'hop', fx, fy, start: performance.now(), dur: 200 };
+  u.anim = { kind: 'hop', fx, fy, start: performance.now(), dur: 200 * ANIM_SCALE };
 }
 export function animLunge(u, tx, ty) {
   const d = Math.hypot(tx - u.x, ty - u.y) || 1;
   if (tx !== u.x) u.face = Math.sign(tx - u.x);
-  u.lunge = { dx: (tx - u.x) / d, dy: (ty - u.y) / d, start: performance.now(), dur: 240 };
+  u.lunge = { dx: (tx - u.x) / d, dy: (ty - u.y) / d, start: performance.now(), dur: 240 * ANIM_SCALE };
 }
 
 export function moveUnit(st, u, tx, ty) {

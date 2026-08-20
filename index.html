@@ -155,6 +155,15 @@ body.reduced-motion #mapSvg line.march { animation: none; }
 @keyframes fadeInOut { 0% {opacity:0} 20% {opacity:.9} 75% {opacity:.9} 100% {opacity:0} }
 @keyframes dashmove { to { stroke-dashoffset: -22; } }
 .pimg.hurt { filter: brightness(.72) sepia(.45) hue-rotate(-28deg) saturate(1.7); }
+.rosterSection {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: 13px; margin-top: 8px;
+  font-size: 12px; letter-spacing: .3em; text-transform: uppercase; color: var(--torch);
+}
+.rosterSection::after { content: ''; flex: 1 1 auto; height: 1px; background: linear-gradient(90deg, var(--torch-d), transparent); opacity: .5; }
+#modal.intro .scene { display: block; border: 1px solid var(--rule2); margin-bottom: 24px; max-width: 800px; width: 100%; height: auto; }
+#coach .dot { display: inline-block; width: 6px; height: 6px; margin-left: 4px; background: #3c3128; transform: rotate(45deg); }
+#coach .dot.done { background: var(--torch-d); }
+#coach .dot.now { background: var(--torch); box-shadow: 0 0 6px rgba(212,130,60,.8); }
 #banner div {
   font-size: 36px; letter-spacing: .36em; color: var(--bone);
   text-shadow: 0 0 40px #000, 0 3px 0 #000;
@@ -429,7 +438,7 @@ input[type=text]:focus { outline: none; border-color: var(--torch); }
     </div>
     <div class="row">
       <button id="btnStart" class="primary">Go Down</button>
-      <button id="btnMuster">The Muster Roll</button>
+      <button id="btnMuster">The Roster</button>
       <button id="btnSettings">Settings</button>
     </div>
     <div class="hint" id="titleStats"></div>

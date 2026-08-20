@@ -159,6 +159,7 @@ export const ABILITIES = {
 // carry two abilities each precisely so the captain is not just "a better one".
 export const CAPTAIN_BASE = {
   id: 'captain', name: 'Captain', short: 'CPT', role: 'Your officer',
+  colour: '#e0b45c',
   hp: 22, mov: 3, armor: 0, range: 1, atk: [5, 7],
   abilities: ['sig_rally'], locked: false, isCaptain: true,
   blurb: 'Signed for the company. Nobody made them do it.',
@@ -180,48 +181,56 @@ export const SIGNATURES = ['sig_rally', 'sig_hold', 'sig_hew', 'sig_ember', 'sig
 export const CLASSES = {
   serjeant: {
     id: 'serjeant', name: 'Serjeant', short: 'SRJ', role: 'Line officer',
+    colour: '#d4823c',
     hp: 26, mov: 4, armor: 1, range: 1, atk: [6, 9],
     abilities: ['rally', 'hold_line'], starter: true, locked: false,
     blurb: 'Held the breach for eleven days. Nobody relieved him.',
   },
   pavisier: {
     id: 'pavisier', name: 'Pavisier', short: 'PAV', role: 'Shield',
+    colour: '#7d9ec4',
     hp: 34, mov: 3, armor: 3, range: 1, atk: [4, 6],
     abilities: ['plant_pavise', 'shield_wall'], locked: false,
     blurb: 'Carries a door for a shield. It has three bolts still in it.',
   },
   crossbow: {
     id: 'crossbow', name: 'Crossbowman', short: 'XBW', role: 'Shot',
+    colour: '#a8b060',
     hp: 18, mov: 3, armor: 0, range: 5, minRange: 2, atk: [8, 11], reload: true,
     abilities: ['punch_through', 'pin'], locked: false,
     blurb: 'Every shot costs a turn of winding. He thinks it is worth it.',
   },
   surgeon: {
     id: 'surgeon', name: 'Surgeon', short: 'SRG', role: 'Wounds',
+    colour: '#8fc498',
     hp: 20, mov: 3, armor: 0, range: 1, atk: [3, 5],
     abilities: ['stitch', 'draught'], locked: false,
     blurb: 'Ran out of anaesthetic in the first winter. Kept operating.',
   },
   sapper: {
     id: 'sapper', name: 'Sapper', short: 'SAP', role: 'Powder',
+    colour: '#e0894a',
     hp: 20, mov: 4, armor: 0, range: 1, atk: [4, 7],
     abilities: ['set_charge', 'pickaxe'], locked: true, cost: 90,
     blurb: 'Dug the countermine. Knows which walls are only pretending.',
   },
   billman: {
     id: 'billman', name: 'Billman', short: 'BIL', role: 'Reach',
+    colour: '#6fbcb0',
     hp: 24, mov: 3, armor: 1, range: 2, minRange: 1, atk: [5, 8],
     abilities: ['hook', 'sweep'], locked: true, cost: 90,
     blurb: 'Eight feet of pole and a hook for pulling men off walls.',
   },
   cutthroat: {
     id: 'cutthroat', name: 'Cutthroat', short: 'CUT', role: 'Knife',
+    colour: '#b08ad0',
     hp: 15, mov: 5, armor: 0, range: 1, atk: [6, 8], flankBonus: 4,
     abilities: ['slip', 'gut'], locked: true, cost: 120,
     blurb: 'Was not a soldier before the siege. Is one of the best of them now.',
   },
   flagellant: {
     id: 'flagellant', name: 'Flagellant', short: 'FLG', role: 'Faith',
+    colour: '#d06a5a',
     hp: 22, mov: 4, armor: 0, range: 1, atk: [5, 9],
     abilities: ['litany', 'martyr'], locked: true, cost: 120,
     blurb: 'Believes the dark under the fortress is a punishment, and deserved.',

@@ -3,6 +3,8 @@
 // click on Understood. Steps that wait on an action never block the input they
 // are asking for, so the lesson is played rather than read.
 
+import { play } from './sfx.js';
+
 const $ = (id) => document.getElementById(id);
 
 let pulsed = null;
@@ -25,6 +27,7 @@ export function startTutorial(a, finish) {
 
 export function endTutorial(completed) {
   active = false;
+  try { if (api) api.view().tutorialRing = null; } catch (e) {}
   hideCoach();
   if (onFinish) onFinish(completed);
 }
@@ -46,6 +49,7 @@ function bindOnce() {
 function next() {
   idx++;
   if (idx >= steps.length) { endTutorial(true); return; }
+  try { play('buff'); } catch (e) {}
   show(steps[idx]);
 }
 
@@ -53,7 +57,8 @@ function show(step) {
   const c = $('coach');
   $('coachTitle').textContent = step.title;
   $('coachText').innerHTML = step.text;
-  $('coachStep').textContent = (idx + 1) + ' / ' + steps.length;
+  $('coachStep').innerHTML = steps.map((_, i) =>
+    '<i class="dot' + (i < idx ? ' done' : i === idx ? ' now' : '') + '"></i>').join('');
   $('coachNext').style.display = step.until ? 'none' : '';
   $('coachNext').textContent = step.button || 'Understood';
   c.classList.add('on');
@@ -83,6 +88,7 @@ function place(step) {
 export function tickTutorial() {
   if (!active || idx < 0 || idx >= steps.length) return;
   const step = steps[idx];
+  try { api.view().tutorialRing = step.ring ? step.ring(api) : null; } catch (e) {}
   if (!step.until) return;
   let ok = false;
   try { ok = step.until(api); } catch (e) { ok = false; }
@@ -126,6 +132,35 @@ function buildSteps() {
       until: (a) => {
         const st = a.state();
         return st && st.units.some(u => u.side === 'enemy' && u.dmgTaken > 0);
+      },
+      // point at the nearest living foe so there is never a "hit WHAT?" moment
+      ring: (a) => {
+        const st = a.state();
+        if (!st) return null;
+        const cap = st.units.find(u => u.alive && u.side === 'player');
+        if (!cap) return null;
+        let best = null, bd = 99;
+        for (const f of st.units) {
+          if (!f.alive || f.side !== 'enemy') continue;
+          const d = Math.abs(f.x - cap.x) + Math.abs(f.y - cap.y);
+          if (d < bd) { bd = d; best = { x: f.x, y: f.y }; }
+        }
+        return best;
+      },
+    },
+    {
+      title: 'Your signature', anchor: 'abilities',
+      text: 'Attacks are free every round; <b>abilities run on cooldowns</b> and hit harder, '
+        + 'reach further, or protect. Your captain carries the signature you chose.<br><br>'
+        + '<b>Press [1]</b> — or click it — and follow the targeting. Hovering the button '
+        + 'shows its reach before you commit.',
+      until: (a) => {
+        const st = a.state();
+        if (!st) return true;
+        // also advance if the fight ends first -- never strand the lesson
+        if (['won', 'lost', 'ending'].includes(st.phase)) return true;
+        return st.units.some(u => u.side === 'player' && u.alive &&
+          Object.values(u.cds).some(cd => cd > 0));
       },
     },
     {

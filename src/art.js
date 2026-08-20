@@ -655,6 +655,181 @@ export function decalTile(size, kind, seed) {
   });
 }
 
+// ----------------------------------------------------------- intro scenes
+// Painted title cards for the three intro pages: a cross-section of the
+// siege, the stair down, and the company at its fire. Procedural, but
+// composed like illustrations -- big shapes, one light source each.
+export function introScene(idx, w, h) {
+  return bake('intro:' + idx + ':' + w + 'x' + h, w, h, (g, W, H) => {
+    if (idx === 0) {
+      // THE SIEGE, in section: sky, wall, earth, and two tunnels meeting
+      const sky = g.createLinearGradient(0, 0, 0, H * 0.34);
+      sky.addColorStop(0, '#2b2233');
+      sky.addColorStop(1, '#4a2e26');
+      g.fillStyle = sky;
+      g.fillRect(0, 0, W, H * 0.34);
+      // the fortress on its ground line
+      g.fillStyle = '#171310';
+      g.fillRect(0, H * 0.30, W, H * 0.06);
+      g.fillStyle = '#241d18';
+      g.fillRect(W * 0.36, H * 0.06, W * 0.16, H * 0.28);            // keep
+      g.fillRect(W * 0.32, H * 0.16, W * 0.24, H * 0.18);            // walls
+      for (let i = 0; i < 6; i++) g.fillRect(W * (0.33 + i * 0.037), H * 0.13, W * 0.018, H * 0.04); // crenels
+      // the breach: a bite out of the wall, glowing
+      g.fillStyle = '#4a2e26';
+      g.beginPath();
+      g.moveTo(W * 0.52, H * 0.16);
+      g.lineTo(W * 0.60, H * 0.34);
+      g.lineTo(W * 0.48, H * 0.34);
+      g.closePath(); g.fill();
+      const bg2 = g.createRadialGradient(W * 0.53, H * 0.30, 2, W * 0.53, H * 0.30, W * 0.09);
+      bg2.addColorStop(0, 'rgba(255,140,60,0.6)');
+      bg2.addColorStop(1, 'rgba(255,140,60,0)');
+      g.fillStyle = bg2;
+      g.fillRect(W * 0.4, H * 0.16, W * 0.26, H * 0.22);
+      // the earth
+      const earth = g.createLinearGradient(0, H * 0.34, 0, H);
+      earth.addColorStop(0, '#231a13');
+      earth.addColorStop(1, '#0d0a08');
+      g.fillStyle = earth;
+      g.fillRect(0, H * 0.34, W, H * 0.66);
+      // strata lines
+      g.strokeStyle = 'rgba(122,94,66,0.16)';
+      g.lineWidth = 1.5;
+      for (let i = 0; i < 4; i++) {
+        g.beginPath();
+        g.moveTo(0, H * (0.45 + i * 0.13) + Math.sin(i * 2) * 5);
+        g.bezierCurveTo(W * 0.3, H * (0.44 + i * 0.13), W * 0.6, H * (0.47 + i * 0.13), W, H * (0.45 + i * 0.13));
+        g.stroke();
+      }
+      // two tunnels, converging under the breach
+      g.strokeStyle = '#0a0806';
+      g.lineWidth = 15;
+      g.lineCap = 'round';
+      g.beginPath();
+      g.moveTo(W * 0.05, H * 0.55); g.quadraticCurveTo(W * 0.32, H * 0.62, W * 0.51, H * 0.76);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(W * 0.95, H * 0.5); g.quadraticCurveTo(W * 0.7, H * 0.6, W * 0.53, H * 0.76);
+      g.stroke();
+      // torch points along each tunnel, opposing colours
+      for (const [tx2, ty2, c2] of [[0.14, 0.565, '#e0a050'], [0.28, 0.60, '#e0a050'], [0.42, 0.675, '#e0a050'],
+        [0.86, 0.515, '#7da0c4'], [0.72, 0.575, '#7da0c4'], [0.60, 0.65, '#7da0c4']]) {
+        const gl2 = g.createRadialGradient(W * tx2, H * ty2, 1, W * tx2, H * ty2, 16);
+        gl2.addColorStop(0, c2);
+        gl2.addColorStop(1, 'rgba(0,0,0,0)');
+        g.globalAlpha = 0.8;
+        g.fillStyle = gl2;
+        g.fillRect(W * tx2 - 16, H * ty2 - 16, 32, 32);
+        g.globalAlpha = 1;
+      }
+      // the meeting point burns red
+      const meet = g.createRadialGradient(W * 0.52, H * 0.76, 2, W * 0.52, H * 0.76, 34);
+      meet.addColorStop(0, '#ff5a3a');
+      meet.addColorStop(0.5, 'rgba(200,60,40,0.5)');
+      meet.addColorStop(1, 'rgba(200,60,40,0)');
+      g.fillStyle = meet;
+      g.fillRect(W * 0.52 - 34, H * 0.76 - 34, 68, 68);
+    } else if (idx === 1) {
+      // THE STAIR: darkness, steps descending, one doorway of light
+      g.fillStyle = '#0b0908';
+      g.fillRect(0, 0, W, H);
+      const door = g.createRadialGradient(W * 0.5, H * 0.32, 4, W * 0.5, H * 0.32, W * 0.3);
+      door.addColorStop(0, 'rgba(224,160,80,0.5)');
+      door.addColorStop(1, 'rgba(224,160,80,0)');
+      g.fillStyle = door;
+      g.fillRect(0, 0, W, H);
+      g.fillStyle = '#e8c088';
+      g.globalAlpha = 0.85;
+      g.fillRect(W * 0.47, H * 0.14, W * 0.06, H * 0.34);            // the lit doorway
+      g.globalAlpha = 1;
+      // steps spilling down and toward us
+      g.fillStyle = '#1a1510';
+      for (let i = 0; i < 8; i++) {
+        const sy2 = H * 0.48 + i * H * 0.062;
+        const grow = i * W * 0.045;
+        g.fillRect(W * 0.40 - grow, sy2, W * 0.20 + grow * 2, H * 0.05);
+        g.fillStyle = i % 2 ? '#171310' : '#1d1712';
+      }
+      // a figure on the stair, tiny against it
+      g.fillStyle = '#060504';
+      g.fillRect(W * 0.485, H * 0.34, W * 0.028, H * 0.10);
+      g.beginPath();
+      g.arc(W * 0.499, H * 0.325, W * 0.013, 0, Math.PI * 2);
+      g.fill();
+    } else {
+      // THE COMPANY: four silhouettes at a fire in a cave mouth
+      const cave = g.createRadialGradient(W * 0.5, H * 0.66, 10, W * 0.5, H * 0.66, W * 0.55);
+      cave.addColorStop(0, '#3a2213');
+      cave.addColorStop(0.55, '#191008');
+      cave.addColorStop(1, '#070605');
+      g.fillStyle = cave;
+      g.fillRect(0, 0, W, H);
+      // the fire
+      const fire = g.createRadialGradient(W * 0.5, H * 0.78, 2, W * 0.5, H * 0.78, 40);
+      fire.addColorStop(0, '#ffd080');
+      fire.addColorStop(0.4, '#e07030');
+      fire.addColorStop(1, 'rgba(224,112,48,0)');
+      g.fillStyle = fire;
+      g.fillRect(W * 0.5 - 40, H * 0.78 - 40, 80, 80);
+      g.fillStyle = '#ffe0a0';
+      g.beginPath();
+      g.ellipse(W * 0.5, H * 0.78, 7, 11, 0, 0, Math.PI * 2);
+      g.fill();
+      // four figures as backlit silhouettes, drawn from the real sprites
+      const ids = ['serjeant', 'pavisier', 'crossbow', 'surgeon'];
+      ids.forEach((id, i) => {
+        const spr = unitSprite(id, null, 'idle');
+        const fx2 = W * (0.26 + i * 0.16);
+        const s2 = (H * 0.42) / spr.height;
+        g.save();
+        g.filter = 'brightness(0.32) saturate(0.7)';
+        if (i > 1) { g.translate(fx2 + spr.width * s2 / 2, 0); g.scale(-1, 1); g.translate(-(fx2 + spr.width * s2 / 2), 0); }
+        g.drawImage(spr, fx2 - spr.width * s2 / 2, H * 0.86 - spr.height * s2, spr.width * s2, spr.height * s2);
+        g.restore();
+      });
+    }
+    // shared frame treatment
+    const vg = g.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, W * 0.7);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.45)');
+    g.fillStyle = vg;
+    g.fillRect(0, 0, W, H);
+  });
+}
+
+// A fortress skyline for the title screen: ridge, keep, and the breach glow.
+export function titleSkyline(w, h) {
+  return bake('skyline:' + w + 'x' + h, w, h, (g, W, H) => {
+    const ridge = H * 0.55;
+    g.fillStyle = '#0d0a08';
+    g.beginPath();
+    g.moveTo(0, H);
+    g.lineTo(0, ridge + 26);
+    g.quadraticCurveTo(W * 0.2, ridge + 6, W * 0.34, ridge + 18);
+    g.lineTo(W * 0.40, ridge - 8);
+    g.lineTo(W * 0.43, ridge - 8);
+    g.lineTo(W * 0.43, ridge - 30);   // the keep
+    g.lineTo(W * 0.50, ridge - 30);
+    g.lineTo(W * 0.50, ridge - 12);
+    g.lineTo(W * 0.56, ridge - 12);
+    g.lineTo(W * 0.60, ridge + 10);   // the breach notch
+    g.lineTo(W * 0.66, ridge + 22);
+    g.quadraticCurveTo(W * 0.85, ridge + 8, W, ridge + 24);
+    g.lineTo(W, H);
+    g.closePath();
+    g.fill();
+    // the breach still glows faintly
+    const gl = g.createRadialGradient(W * 0.62, ridge + 14, 2, W * 0.62, ridge + 14, 60);
+    gl.addColorStop(0, 'rgba(224,120,50,0.35)');
+    gl.addColorStop(1, 'rgba(224,120,50,0)');
+    g.fillStyle = gl;
+    g.fillRect(W * 0.62 - 60, ridge - 46, 120, 120);
+    g.fillStyle = 'rgba(255,170,90,0.65)';
+    g.fillRect(W * 0.615, ridge + 8, 3, 3);
+  });
+}
+
 // -------------------------------------------------------------- set pieces
 // Landmark obstacles, one flavour per floor, so the levels stop being the
 // same architecture in three palettes. They occupy WALL tiles: they block

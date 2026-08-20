@@ -299,8 +299,9 @@ export function draw(ctx, st, view) {
   // ---- threat overlay. The hatch MUST be clipped to the threatened tiles:
   // unclipped diagonals run a full tile past their own square and the whole
   // board floods red.
-  drawHatch(ctx, view.threat, '#a33b32', 0.20, 9);
-  drawHatch(ctx, view.threatFocus, '#e8452f', 0.62, 6);
+  const thc = view.cbThreat ? ['#3b6ea3', '#4a9ee0'] : ['#a33b32', '#e8452f'];
+  drawHatch(ctx, view.threat, thc[0], 0.20, 9);
+  drawHatch(ctx, view.threatFocus, thc[1], 0.62, 6);
 
   // ---- move / target overlays
   if (view.moveTiles) {
@@ -438,6 +439,7 @@ export function draw(ctx, st, view) {
   for (const u of order) drawUnit(ctx, st, u, view, t);
 
   // ---- fx
+  drawFx.hideNumbers = !!view.hideNumbers;
   drawFx(ctx, st);
 
   // ---- the Breach is open to the sky somewhere: one shaft of day, floor 1 only
@@ -536,6 +538,20 @@ export function draw(ctx, st, view) {
       ctx.fill();
       ctx.restore();
     }
+  }
+
+  // ---- tutorial ring: the lesson points at this tile
+  if (view.tutorialRing) {
+    const { px, py } = tileToPx(view.tutorialRing.x, view.tutorialRing.y);
+    const rr = 4 + Math.sin(t / 260) * 2.5;
+    ctx.save();
+    ctx.strokeStyle = '#e8c268';
+    ctx.lineWidth = 2.5;
+    ctx.globalAlpha = 0.85;
+    ctx.strokeRect(px - rr + 2, py - rr + 2, TILE + rr * 2 - 4, TILE + rr * 2 - 4);
+    ctx.globalAlpha = 0.3;
+    ctx.strokeRect(px - rr - 3, py - rr - 3, TILE + rr * 2 + 6, TILE + rr * 2 + 6);
+    ctx.restore();
   }
 
   // ---- damage forecast chip over the hovered target
@@ -814,6 +830,7 @@ function drawFx(ctx, st) {
   for (const f of st.fx) {
     f.t = (f.t || 0) + 1;
     if (f.kind === 'hit' && f.amount != null) {
+      if (drawFx.hideNumbers) { if (f.t < 40) keep.push(f); continue; }
       const { px, py } = tileToPx(f.x, f.y);
       const life = f.t / 40;
       if (life < 1) {
