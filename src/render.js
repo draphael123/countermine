@@ -427,7 +427,7 @@ export function draw(ctx, st, view) {
     ctx.restore();
   }
 
-  // ---- path preview
+  // ---- path preview (with a verdict at its end: safe ground, or not)
   if (view.path && view.path.length > 1) {
     ctx.save();
     ctx.strokeStyle = 'rgba(190,230,255,0.85)';
@@ -440,6 +440,31 @@ export function draw(ctx, st, view) {
       if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
     });
     ctx.stroke();
+    ctx.restore();
+    const dest = view.path[view.path.length - 1];
+    const { px: dpx, py: dpy } = tileToPx(dest.x, dest.y);
+    ctx.save();
+    if (view.pathDanger) {
+      // a small skull: they can reach this tile next turn
+      const sx2 = dpx + TILE - 11, sy2 = dpy + 10;
+      ctx.fillStyle = 'rgba(12,9,7,0.85)';
+      ctx.fillRect(sx2 - 7, sy2 - 7, 15, 15);
+      ctx.fillStyle = '#e8a08a';
+      ctx.beginPath(); ctx.arc(sx2, sy2 - 1, 4.2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillRect(sx2 - 3, sy2 + 2, 6, 3);
+      ctx.fillStyle = '#12100c';
+      ctx.fillRect(sx2 - 2.5, sy2 - 2.4, 1.7, 2);
+      ctx.fillRect(sx2 + 0.8, sy2 - 2.4, 1.7, 2);
+    } else {
+      // quiet ground
+      ctx.strokeStyle = '#8fb073';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(dpx + TILE - 16, dpy + 10);
+      ctx.lineTo(dpx + TILE - 12, dpy + 14);
+      ctx.lineTo(dpx + TILE - 6, dpy + 5);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -532,6 +557,15 @@ export function draw(ctx, st, view) {
 
   // ---- floor atmospheres: drips in the Sump, rising embers in the Countermine
   if (!view.reducedMotion) drawFloorParticles(ctx, view.floorN, t);
+
+  // ---- floor grade: one tint unifies each floor's palette
+  const GRADE = {
+    1: 'rgba(212,140,70,0.035)',
+    2: 'rgba(70,130,130,0.05)',
+    3: 'rgba(200,72,40,0.045)',
+  };
+  ctx.fillStyle = GRADE[view.floorN] || GRADE[1];
+  ctx.fillRect(0, 0, CW, CH);
 
   // ---- vignette. It is a dungeon; the edges should not be as lit as the
   // middle -- but the corners still have to be legible tiles, not mud.
@@ -733,13 +767,31 @@ function drawUnit(ctx, st, u, view, t) {
     ctx.restore();
   }
 
+  const flash = st.fx.find(f => f.kind === 'hit' && f.x === u.x && f.y === u.y && f.t < 6);
+  // frame priority: taking a hit > mid-strike > walking > standing
   let frame = 'idle';
   if (u.anim && u.anim.kind === 'walk') frame = (((t - u.anim.start) / 110) | 0) % 2 ? 'walkA' : 'walkB';
+  if (u.lunge) {
+    const lp = (t - u.lunge.start) / u.lunge.dur;
+    if (lp >= 0.3 && lp < 1) frame = 'strike';
+  }
+  if (flash) frame = 'flinch';
   const spr = unitSprite(u.defId, u.custom, frame);
   const face = u.face || (u.side === 'enemy' ? -1 : 1);
+
+  // sump water throws back a drowned twin
+  const under = st.grid[u.y] && st.grid[u.y][u.x];
+  if (under && under.t === T.MUD) {
+    ctx.save();
+    ctx.globalAlpha = 0.16;
+    ctx.translate(cx, cy - 2);
+    ctx.scale(face, -0.55);
+    ctx.drawImage(spr, -spr.width / 2, -spr.height + 4);
+    ctx.restore();
+  }
+
   ctx.save();
   if (spent) ctx.globalAlpha = 0.45;
-  const flash = st.fx.find(f => f.kind === 'hit' && f.x === u.x && f.y === u.y && f.t < 6);
   ctx.translate(cx, cy);
   ctx.scale(face, 1);
   ctx.drawImage(spr, -spr.width / 2, -spr.height + 4);
@@ -887,6 +939,7 @@ function drawFx(ctx, st) {
         ctx.save();
         ctx.globalAlpha = 1 - life;
         const big = f.amount >= 10;
+        if (f.vx === undefined) f.vx = ((f.x * 7 + f.y * 13 + f.amount) % 5 - 2) * 5.5;
         ctx.font = 'bold ' + (big ? 22 : 16) + 'px "Courier New", monospace';
         if (f.t < 5) { // impact chips on the first frames
           ctx.fillStyle = f.side === 'player' ? 'rgba(200,80,60,0.8)' : 'rgba(220,200,170,0.8)';
@@ -900,9 +953,11 @@ function drawFx(ctx, st) {
         ctx.lineWidth = 3;
         ctx.strokeStyle = '#000';
         const s = '-' + f.amount;
-        ctx.strokeText(s, px + TILE / 2, py + 22 - life * 26);
+        const ax = px + TILE / 2 + (f.vx || 0) * life;
+        const ay = py + 22 - life * 40 + life * life * 26;   // up, then settle
+        ctx.strokeText(s, ax, ay);
         ctx.fillStyle = f.side === 'player' ? '#ff8a7a' : '#ffe0a0';
-        ctx.fillText(s, px + TILE / 2, py + 22 - life * 26);
+        ctx.fillText(s, ax, ay);
         ctx.restore();
         keep.push(f);
       }

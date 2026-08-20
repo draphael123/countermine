@@ -56,6 +56,8 @@ let mode = 'idle';          // idle | move | attack | ability | dir
 let armedAbility = null;
 let enemyTimer = 0;
 let uidCounter = 1;
+// the targeting reticle, inline so the cursor never waits on a fetch
+const CROSSHAIR_SVG = "%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2226%22%20height%3D%2226%22%3E%3Cg%20stroke%3D%22%23d4823c%22%20stroke-width%3D%222%22%20fill%3D%22none%22%3E%3Ccircle%20cx%3D%2213%22%20cy%3D%2213%22%20r%3D%227%22%2F%3E%3Cpath%20d%3D%22M13%201v6M13%2019v6M1%2013h6M19%2013h6%22%2F%3E%3C%2Fg%3E%3Ccircle%20cx%3D%2213%22%20cy%3D%2213%22%20r%3D%221.6%22%20fill%3D%22%23f2dcbc%22%2F%3E%3C%2Fsvg%3E";
 // Touch: hover does not exist, so a first tap PREVIEWS (inspect, forecast,
 // threat) and a second tap on the same tile commits. Desktop is unchanged.
 const touchMode = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) || !!window.__forceTouch;
@@ -264,8 +266,8 @@ function openMap() {
     'linear-gradient(180deg, #0d0b09, #070605)';
   $('floorName').textContent = 'FLOOR ' + f.n + ' — ' + f.name;
   $('floorSub').textContent = f.sub;
-  $('goldNum').textContent = run.gold;
-  $('tallyNum').textContent = meta.tallies;
+  tweenNum($('goldNum'), run.gold);
+  tweenNum($('tallyNum'), meta.tallies);
   renderRoster();
   const strip = $('relicStrip');
   strip.innerHTML = '';
@@ -282,6 +284,19 @@ function openMap() {
 
 // The party used to exist only as a number on the map screen, so nobody could
 // see who they had or how hurt they were between fights.
+// numbers roll to their new value; snapping is for spreadsheets
+function tweenNum(el, target) {
+  const from = parseInt(el.textContent, 10);
+  if (isNaN(from) || from === target || settings.reducedMotion) { el.textContent = target; return; }
+  const t0 = performance.now(), dur = Math.min(700, 180 + Math.abs(target - from) * 6);
+  clearInterval(el.__tween);
+  el.__tween = setInterval(() => {
+    const p = Math.min(1, (performance.now() - t0) / dur);
+    el.textContent = Math.round(from + (target - from) * (1 - (1 - p) * (1 - p)));
+    if (p >= 1) clearInterval(el.__tween);
+  }, 40);
+}
+
 function renderRoster() {
   const box = $('roster');
   box.innerHTML = '';
@@ -455,6 +470,7 @@ let pendingNode = null;
 
 function enterNode(node) {
   pendingNode = node;
+  if (node.type === 'boss') tip('boss');
   if (node.type === 'cache') tip('cache');
   else if (node.type === 'camp') tip('camp');
   else if (node.type === 'vendor') tip('vendor');
@@ -519,7 +535,15 @@ function startBattle(node) {
   mode = 'idle';
   $('floorTag').textContent = 'Floor ' + floor.n + ' · ' + floor.name + ' · ' + NODE_ART[node.type].label;
   showScreen('battle');
-  if (kind === 'boss') banner(BOSSES[floor.boss].name, 1900, 'boss');
+  if (kind === 'boss') {
+    banner(BOSSES[floor.boss].name, 1900, 'boss');
+    const bossU = st.units.find(u => u.boss);
+    if (bossU && !settings.reducedMotion) {
+      E.animWalk(bossU, [{ x: bossU.x + 5, y: bossU.y }, { x: bossU.x, y: bossU.y }]);
+      bossU.anim.start = performance.now() + 250;
+      bossU.anim.dur = 1300;
+    }
+  }
   else banner(NODE_ART[node.type].label.toUpperCase(), 1100);
   // the company files in from the stair on the left
   if (!settings.reducedMotion) st.units.filter(u => u.side === 'player').forEach((u, i) => {
@@ -535,7 +559,7 @@ function startBattle(node) {
     meta.seenTutorial = true; saveMeta();
     startTutorial(
       { state: () => st, view: () => view, screen: () => currentScreen },
-      (completed) => { if (completed) banner('THE DIG BEGINS', 1400); }
+      (completed) => { if (completed) { banner('THE DIG BEGINS', 1400); setTimeout(() => tip('recap'), 1600); } }
     );
   }
 }
@@ -600,11 +624,24 @@ cv.addEventListener('contextmenu', (ev) => { ev.preventDefault(); cancelMode(); 
 
 function updateHoverPath(t) {
   view.path = null;
+  view.pathDanger = false;
   if (mode !== 'move' || !view.selected) return;
   const u = unitByUid(view.selected);
   if (!u || !view.moveTiles) return;
   if (!view.moveTiles.some(m => m.x === t.x && m.y === t.y)) return;
   view.path = E.pathTo(st, u, t.x, t.y);
+  // the verdict: can anything reach that tile next turn?
+  const threat = view.threat || threatCache();
+  view.pathDanger = threat ? threat.has(t.y * 16 + t.x) : false;
+}
+
+// threat is cheap but not free; cache it per round when the overlay is off
+let tCache = null, tCacheKey = '';
+function threatCache() {
+  if (!st) return null;
+  const key = st.round + ':' + st.phase + ':' + st.units.filter(u => u.alive).length;
+  if (tCacheKey !== key) { tCache = E.threatMap(st); tCacheKey = key; }
+  return tCache;
 }
 
 function unitByUid(uid) { return st.units.find(u => u.uid === uid && u.alive); }
@@ -872,7 +909,8 @@ function syncUI() {
     : st.phase === 'player' ? 'Round ' + st.round + ' · your move'
       : st.phase === 'enemy' ? 'Round ' + st.round + ' · they move' : '';
   $('phaseTag').style.color = st.phase === 'enemy' ? '#b8483a' : '#8b8072';
-  cv.style.cursor = (mode === 'attack' || mode === 'ability') ? 'crosshair' : '';
+  cv.style.cursor = (mode === 'attack' || mode === 'ability')
+    ? 'url("data:image/svg+xml,' + CROSSHAIR_SVG + '") 13 13, crosshair' : '';
   $('endBtn').textContent = st.phase === 'deploy' ? 'Begin' : 'End Turn';
   $('endBtn').disabled = st.phase === 'enemy';
   $('threatBtn').style.borderColor = view.threat ? '#c2703a' : '';
@@ -899,7 +937,10 @@ function updateInspect(t) {
     }
     if (o.statuses.length) s += '<span class="mono" style="color:#8b8072">' + o.statuses.map(x => '<u class="kw" title="' + (KEYWORDS[x.id] || '') + '">' + x.id + '</u>').join(', ') + '</span><br>';
     s += '<i style="color:#7d7264">' + o.def.blurb + '</i>';
+    if (o.side === 'enemy') s += '<br><button class="ledgerBtn" style="margin-top:6px;padding:4px 10px;font-size:11px">Read the Ledger</button>';
     el.innerHTML = s;
+    const lb = el.querySelector('.ledgerBtn');
+    if (lb) lb.addEventListener('click', (ev) => { ev.stopPropagation(); screenGlossary(() => showScreen('battle')); });
     return;
   }
   if (tile.bar) { el.innerHTML = '<b>Barricade</b><br><span class="mono">' + tile.bar.hp + '/' + tile.bar.maxHp + '</span><br><i style="color:#7d7264">Blocks movement and line of sight. Break it or go around.</i>'; return; }
@@ -1510,6 +1551,8 @@ const TIPS = {
   fullparty: ['Four is the cap', 'Taking a fifth means leaving one of yours in the dark — and that is a death, not a bench. Gold is the safe answer.'],
   death: ['Nobody comes back', 'That soldier is gone for the run, and the next fights scale to the company you still have. Retreat is a real option — a hurt soldier pulled back is a soldier kept.'],
   tallies: ['Tallies', 'The one thing that survives a run. Spend them on THE ROSTER to add classes and relics to what future runs can find.'],
+  boss: ['The floor’s master', 'Bosses hit harder, call for help, and hold the only stair down. Spend your cooldowns — there is nothing after this worth saving them for.'],
+  recap: ['The three laws', 'Orange tiles WILL be hit — never stand in them. A flanked foe takes +3 from behind. And nobody you lose comes back.'],
 };
 
 function tip(id) {

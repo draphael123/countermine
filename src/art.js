@@ -47,9 +47,11 @@ function drawFigure(g, spec, pose) {
 
   const bulk = spec.bulk || 1;
   const wide = bulk > 1.15 ? 1 : bulk < 1.0 ? -1 : 0;  // -1 lean, 0 standard, +1 broad
-  const cx = 13;                       // centre column
   const G = 29;                        // ground row (feet bottom)
   const step = pose === 'walkA' ? 1 : pose === 'walkB' ? -1 : 0;
+  const thrust = pose === 'strike' ? 2 : 0;   // weapon punched forward
+  const lean = pose === 'flinch' ? -1 : 0;    // body recoils off the blow
+  const cx = 13 + lean;                // centre column (leans on flinch)
 
   // ---- legs + boots (scissor on walk frames)
   P(cx - 3 - step, G - 4, 2, 4, clothD);
@@ -58,7 +60,7 @@ function drawFigure(g, spec, pose) {
   P(cx + 1 + step, G - 1, 2, 1, '#191410');
 
   // ---- weapon behind the body
-  drawWeapon(P, cx, G, spec, metal, metalL, true);
+  drawWeapon(P, cx + thrust, G, spec, metal, metalL, true);
 
   // ---- torso rows 14..24: shoulders taper to waist
   const shW = 4 + wide;                // half-width at shoulders
@@ -94,7 +96,7 @@ function drawFigure(g, spec, pose) {
     P(cx + shW - 1, 15, 3, 2, armC);              // drawn across
     P(cx - shW - 1, 16, 2, 3, armC);
   } else {
-    P(cx + shW - 1, 15, 2, 5, armC);              // weapon arm
+    P(cx + shW - 1 + thrust, 15 + (thrust ? 1 : 0), 2, 5 - (thrust ? 1 : 0), armC); // weapon arm
     P(cx - shW, 16, 1, 4, armC);                  // off arm
   }
 
@@ -138,7 +140,7 @@ function drawFigure(g, spec, pose) {
   }
 
   // ---- weapon in front
-  drawWeapon(P, cx, G, spec, metal, metalL, false);
+  drawWeapon(P, cx + thrust, G, spec, metal, metalL, false);
 }
 
 function drawWeapon(P, cx, G, spec, metal, metalL, behindPass) {
