@@ -1,7 +1,7 @@
 // COUNTERMINE -- board rendering. Canvas draws the battlefield only; every
 // panel, menu and button is DOM, which is far easier to keep looking good.
 import { GW, GH, T, tileAt, occupant, hasStatus, getStatus } from './engine.js';
-import { unitSprite, floorTile, wallTile, mudTile, shade } from './art.js';
+import { unitSprite, floorTile, wallTile, mudTile, shade, decalTile, FLOOR_DECALS } from './art.js';
 
 export const TILE = 52;
 export const PAD_TOP = 34;
@@ -15,6 +15,45 @@ export function pxToTile(px, py) {
 
 const now = () => performance.now();
 
+// Where a unit is DRAWN this frame -- its logical tile eased through any
+// pending walk/hop. Everything that draws at a unit (shadows, bars, torch
+// pools) uses this, or the sprite slides while its chrome teleports.
+function drawPos(u, t) {
+  const base = tileToPx(u.x, u.y);
+  let px = base.px, py = base.py;
+  if (u.anim) {
+    const p = (t - u.anim.start) / u.anim.dur;
+    if (p >= 1) { u.anim = null; }
+    else if (u.anim.kind === 'walk') {
+      const path = u.anim.path;
+      const f = p * (path.length - 1);
+      const i = Math.min(path.length - 2, Math.floor(f));
+      const k = f - i;
+      const ax = path[i].x + (path[i + 1].x - path[i].x) * k;
+      const ay = path[i].y + (path[i + 1].y - path[i].y) * k;
+      const q = tileToPx(ax, ay);
+      px = q.px; py = q.py;
+      // step bounce
+      py -= Math.abs(Math.sin(f * Math.PI)) * 3;
+    } else if (u.anim.kind === 'hop') {
+      const e = 1 - (1 - p) * (1 - p); // ease-out
+      const q0 = tileToPx(u.anim.fx, u.anim.fy);
+      px = q0.px + (base.px - q0.px) * e;
+      py = q0.py + (base.py - q0.py) * e - Math.sin(p * Math.PI) * 14;
+    }
+  }
+  if (u.lunge) {
+    const p = (t - u.lunge.start) / u.lunge.dur;
+    if (p >= 1) { u.lunge = null; }
+    else {
+      const amp = Math.sin(p * Math.PI) * 13;
+      px += u.lunge.dx * amp;
+      py += u.lunge.dy * amp;
+    }
+  }
+  return { px, py };
+}
+
 export function draw(ctx, st, view) {
   const pal = view.palette || { floor: '#2b2724', wall: '#43392f', accent: '#6a4a2f' };
   ctx.clearRect(0, 0, CW, CH);
@@ -22,6 +61,24 @@ export function draw(ctx, st, view) {
   ctx.fillRect(0, 0, CW, CH);
 
   const t = now();
+
+  // ---- screen shake: consume shake fx into a decaying offset
+  ctx.save();
+  if (view.shakeEnabled !== false) {
+    let mag = 0;
+    for (const f of st.fx) {
+      if (f.kind !== 'shake') continue;
+      f.t = (f.t || 0) + 1;
+      const life = 1 - f.t / 14;
+      if (life > 0) mag = Math.max(mag, f.mag * life);
+    }
+    st.fx = st.fx.filter(f => f.kind !== 'shake' || f.t < 14);
+    if (mag > 0.2) {
+      ctx.translate((Math.random() - 0.5) * 2 * mag, (Math.random() - 0.5) * 2 * mag);
+    }
+  } else {
+    st.fx = st.fx.filter(f => f.kind !== 'shake');
+  }
 
   // ---- tiles
   for (let y = 0; y < GH; y++) {
@@ -46,6 +103,33 @@ export function draw(ctx, st, view) {
       } else {
         ctx.drawImage(floorTile(TILE, pal.floor, tile.rubbleSeed), px, py);
       }
+    }
+  }
+
+  // ---- decals: quiet per-floor scatter (bones, rubble, moss, embers)
+  const decals = FLOOR_DECALS[view.floorN] || FLOOR_DECALS[1];
+  for (let y = 0; y < GH; y++) {
+    for (let x = 0; x < GW; x++) {
+      const tile = st.grid[y][x];
+      if (tile.t !== T.FLOOR || tile.rubbleSeed % 6 !== 0) continue;
+      const kind = decals[(tile.rubbleSeed / 6 | 0) % decals.length];
+      const { px, py } = tileToPx(x, y);
+      ctx.drawImage(decalTile(TILE, kind, tile.rubbleSeed), px, py);
+    }
+  }
+
+  // ---- wall drop shadows: masonry sits ON the floor, it does not float
+  for (let y = 0; y < GH; y++) {
+    for (let x = 0; x < GW; x++) {
+      if (st.grid[y][x].t !== T.WALL) continue;
+      const below = tileAt(st, x, y + 1);
+      if (!below || below.t === T.WALL) continue;
+      const { px, py } = tileToPx(x, y + 1);
+      const sh = ctx.createLinearGradient(0, py, 0, py + 14);
+      sh.addColorStop(0, 'rgba(0,0,0,0.38)');
+      sh.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = sh;
+      ctx.fillRect(px, py, TILE, 14);
     }
   }
 
@@ -94,7 +178,7 @@ export function draw(ctx, st, view) {
   // ---- threat overlay. The hatch MUST be clipped to the threatened tiles:
   // unclipped diagonals run a full tile past their own square and the whole
   // board floods red.
-  drawHatch(ctx, view.threat, '#a33b32', 0.30, 8);
+  drawHatch(ctx, view.threat, '#a33b32', 0.20, 9);
   drawHatch(ctx, view.threatFocus, '#e8452f', 0.62, 6);
 
   // ---- move / target overlays
@@ -237,6 +321,8 @@ export function draw(ctx, st, view) {
     ctx.lineWidth = 2;
     ctx.strokeRect(px + 1, py + 1, TILE - 2, TILE - 2);
   }
+
+  ctx.restore(); // shake translate
 }
 
 function drawHatch(ctx, set, colour, alpha, spacing) {
@@ -279,10 +365,20 @@ function drawHatch(ctx, set, colour, alpha, spacing) {
 }
 
 function drawUnit(ctx, st, u, view, t) {
-  const { px, py } = tileToPx(u.x, u.y);
-  const cx = px + TILE / 2, cy = py + TILE;
+  const { px, py } = drawPos(u, t);
+  const cx = px + TILE / 2;
+  // idle bob: barely-there breathing so a still board is not a dead board
+  const cy = py + TILE + Math.sin(t / 520 + u.uid * 1.7) * 1.2;
   const selected = view.selected === u.uid;
   const spent = u.side === 'player' && u.acted && st.phase === 'player';
+
+  if (u.boss) {
+    const br = ctx.createRadialGradient(cx, cy - 8, 4, cx, cy - 8, TILE * 1.3);
+    br.addColorStop(0, 'rgba(200,60,40,0.16)');
+    br.addColorStop(1, 'rgba(200,60,40,0)');
+    ctx.fillStyle = br;
+    ctx.fillRect(cx - TILE * 1.4, cy - TILE * 1.6, TILE * 2.8, TILE * 2.8);
+  }
 
   // torch pool under friendly units so the party reads as the lit thing
   if (u.side === 'player') {
@@ -315,16 +411,19 @@ function drawUnit(ctx, st, u, view, t) {
   }
 
   const spr = unitSprite(u.defId, u.custom);
+  const face = u.face || (u.side === 'enemy' ? -1 : 1);
   ctx.save();
   if (spent) ctx.globalAlpha = 0.45;
   const flash = st.fx.find(f => f.kind === 'hit' && f.x === u.x && f.y === u.y && f.t < 6);
-  ctx.drawImage(spr, cx - spr.width / 2, cy - spr.height + 4);
+  ctx.translate(cx, cy);
+  ctx.scale(face, 1);
+  ctx.drawImage(spr, -spr.width / 2, -spr.height + 4);
   if (flash) {
-    // Tint via a clipped re-draw of the sprite, NOT source-atop on the whole
+    // Tint via a re-draw in lighter mode, NOT source-atop on the whole
     // canvas -- source-atop paints the bounding rectangle.
     ctx.globalCompositeOperation = 'lighter';
     ctx.globalAlpha = 0.5;
-    ctx.drawImage(spr, cx - spr.width / 2, cy - spr.height + 4);
+    ctx.drawImage(spr, -spr.width / 2, -spr.height + 4);
     ctx.globalCompositeOperation = 'source-over';
   }
   ctx.restore();

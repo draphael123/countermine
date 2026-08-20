@@ -15,9 +15,19 @@ export function mulberry32(a) {
   };
 }
 export function makeRng(seed) {
-  const r = mulberry32(seed >>> 0);
+  // State lives here, not inside a closure we can't reach: a saved run has to
+  // serialize the RNG mid-stream or the dungeon re-rolls on every resume.
+  let a = seed >>> 0;
+  const r = function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
   return {
     next: r,
+    getState: () => a >>> 0,
+    setState: (s) => { a = s >>> 0; },
     int: (lo, hi) => lo + Math.floor(r() * (hi - lo + 1)),
     pick: (arr) => arr[Math.floor(r() * arr.length)],
     chance: (p) => r() < p,
@@ -428,6 +438,7 @@ export function applyDamage(st, target, amount, source, opts = {}) {
   }
   target.hp -= amount;
   target.dmgTaken += amount;
+  if (amount >= 6) st.fx.push({ kind: 'shake', mag: Math.min(7, 1 + amount * 0.4), t: 0 });
   if (source) source.dmgDealt += amount;
   st.fx.push({ kind: 'hit', x: target.x, y: target.y, t: 0, amount, side: target.side });
   if (target.hp <= 0) killUnit(st, target, source);
@@ -439,6 +450,7 @@ export function killUnit(st, target, source) {
   target.alive = false;
   target.hp = 0;
   st.fx.push({ kind: 'death', x: target.x, y: target.y, t: 0, side: target.side });
+  st.fx.push({ kind: 'shake', mag: 5, t: 0 });
   logLine(st, target.name + ' falls.');
   if (source && source.side !== target.side) {
     source.kills++;
@@ -468,10 +480,29 @@ export function checkOver(st) {
 }
 
 // --------------------------------------------------------------- unit acting
+// --------------------------------------------------------------- animation
+// Purely visual: logic teleports as before, the renderer eases toward it.
+export function animWalk(u, path) {
+  if (!path || path.length < 2) return;
+  u.face = Math.sign(path[path.length - 1].x - path[0].x) || u.face || 1;
+  u.anim = { kind: 'walk', path, start: performance.now(),
+    dur: Math.min(430, 130 * (path.length - 1)) };
+}
+export function animHop(u, fx, fy) {
+  u.face = Math.sign(u.x - fx) || u.face || 1;
+  u.anim = { kind: 'hop', fx, fy, start: performance.now(), dur: 200 };
+}
+export function animLunge(u, tx, ty) {
+  const d = Math.hypot(tx - u.x, ty - u.y) || 1;
+  if (tx !== u.x) u.face = Math.sign(tx - u.x);
+  u.lunge = { dx: (tx - u.x) / d, dy: (ty - u.y) / d, start: performance.now(), dur: 240 };
+}
+
 export function moveUnit(st, u, tx, ty) {
   const path = pathTo(st, u, tx, ty);
   if (!path) return false;
   u.path = path;
+  animWalk(u, path);
   u.x = tx; u.y = ty;
   u.moved = true;
   return true;
@@ -479,6 +510,8 @@ export function moveUnit(st, u, tx, ty) {
 
 export function basicAttack(st, u, target) {
   if (u.usesLoad && !u.loaded) return { ok: false, why: 'not loaded' };
+  if (u.usesLoad) st.fx.push({ kind: 'snd', s: 'bow' });
+  animLunge(u, target.x, target.y);
   const prof = damageProfile(st, u, target, {});
   const roll = st.rng.int(prof.min, prof.max);
   applyDamage(st, target, roll, u, {});
@@ -496,6 +529,7 @@ export function basicAttack(st, u, target) {
 
 export function reload(st, u) {
   u.loaded = true;
+  st.fx.push({ kind: 'snd', s: 'reload' });
   logLine(st, u.name + ' winds the bow.');
   finishAction(st, u);
 }
@@ -575,6 +609,7 @@ export function resolveAbility(st, u, aid, ab, tx, ty, dir) {
     case 'attack': {
       const tgt = target || (tileAt(st, tx, ty)?.bar ? { structure: true, x: tx, y: ty } : null);
       if (!tgt) return;
+      animLunge(u, tx, ty);
       const prof = damageProfile(st, u, tgt, { dmg: ab.dmg, pierce: ab.pierce });
       const roll = st.rng.int(prof.min, prof.max);
       applyDamage(st, tgt, roll, u, { pierce: ab.pierce });
@@ -584,11 +619,13 @@ export function resolveAbility(st, u, aid, ab, tx, ty, dir) {
     }
     case 'buff': {
       if (!target) return;
+      st.fx.push({ kind: 'snd', s: 'buff' });
       addStatus(target, ab.status, ab.dur, ab.val);
       logLine(st, u.name + ' rallies ' + target.name + '.');
       return;
     }
     case 'aura_buff': {
+      st.fx.push({ kind: 'snd', s: 'buff' });
       if (ab.selfDmg) applyDamage(st, u, ab.selfDmg, null, { pierce: true, self: true });
       for (const o of st.units) {
         if (!o.alive || o.side !== u.side) continue;
@@ -598,6 +635,7 @@ export function resolveAbility(st, u, aid, ab, tx, ty, dir) {
       return;
     }
     case 'aura_guard': {
+      st.fx.push({ kind: 'snd', s: 'buff' });
       const val = aid === 'shield_wall' ? 4 : 3;
       for (const o of st.units) {
         if (!o.alive || o.side !== u.side) continue;
@@ -618,23 +656,28 @@ export function resolveAbility(st, u, aid, ab, tx, ty, dir) {
     }
     case 'cleanse': {
       if (!target) return;
+      st.fx.push({ kind: 'snd', s: 'buff' });
       clearStatus(target, 'bleed'); clearStatus(target, 'pinned'); clearStatus(target, 'burning');
       addStatus(target, 'hasted', 2, 0);
       logLine(st, target.name + ' drinks and steadies.');
       return;
     }
     case 'place_barricade': {
+      st.fx.push({ kind: 'snd', s: 'thunk' });
       st.grid[ty][tx].bar = { hp: ab.hp, maxHp: ab.hp, planted: true };
       logLine(st, u.name + ' plants the pavise.');
       return;
     }
     case 'bomb': {
+      st.fx.push({ kind: 'snd', s: 'thunk' });
       st.bombs.push({ x: tx, y: ty, fuse: ab.fuse + 1, radius: ab.radius, dmg: ab.dmg, owner: u.uid });
       logLine(st, u.name + ' sets a charge.');
       return;
     }
     case 'pull': {
       if (!target) return;
+      st.fx.push({ kind: 'snd', s: 'thunk' });
+      animLunge(u, tx, ty);
       const prof = damageProfile(st, u, target, { dmg: ab.dmg });
       const roll = st.rng.int(prof.min, prof.max);
       applyDamage(st, target, roll, u, {});
@@ -644,12 +687,13 @@ export function resolveAbility(st, u, aid, ab, tx, ty, dir) {
         const ny = target.y + (Math.abs(u.x - target.x) >= Math.abs(u.y - target.y) ? 0 : dy);
         const t = tileAt(st, nx, ny);
         if (t && t.t === T.PIT) { logLine(st, target.name + ' goes into the shaft.'); killUnit(st, target, u); }
-        else if (t && t.t !== T.WALL && !t.bar && !occupant(st, nx, ny)) { target.x = nx; target.y = ny; }
+        else if (t && t.t !== T.WALL && !t.bar && !occupant(st, nx, ny)) { const ofx = target.x, ofy = target.y; target.x = nx; target.y = ny; animHop(target, ofx, ofy); }
       }
       logLine(st, u.name + ' hooks ' + target.name + ' for ' + roll + '.');
       return;
     }
     case 'cone': {
+      animLunge(u, u.x + (dir ? dir[0] : 1), u.y + (dir ? dir[1] : 0));
       const tiles = coneTiles(u, dir || [1, 0]);
       let any = false;
       for (const p of tiles) {
@@ -666,11 +710,14 @@ export function resolveAbility(st, u, aid, ab, tx, ty, dir) {
       return;
     }
     case 'blink': {
+      const bfx = u.x, bfy = u.y;
       u.x = tx; u.y = ty;
+      animHop(u, bfx, bfy);
       logLine(st, u.name + ' slips through.');
       return { endsTurn: false };
     }
     case 'oath': {
+      st.fx.push({ kind: 'snd', s: 'buff' });
       addStatus(u, 'guarded', ab.dur + 1, ab.guard);
       addStatus(u, 'taunting', ab.dur + 1, 0);
       logLine(st, u.name + ' swears the iron oath. Everything nearby wants them now.');
@@ -689,7 +736,9 @@ export function resolveAbility(st, u, aid, ab, tx, ty, dir) {
         .filter(p => passable(st, p.x, p.y, u) && !occupant(st, p.x, p.y));
       if (!spots.length) return;
       const s = spots[0];
+      const lfx = u.x, lfy = u.y;
       u.x = s.x; u.y = s.y;
+      animHop(u, lfx, lfy);
       const prof = damageProfile(st, u, target, { dmg: ab.dmg });
       const roll = st.rng.int(prof.min, prof.max);
       applyDamage(st, target, roll, u, {});
@@ -778,6 +827,7 @@ function tickBombs(st) {
     if (b.fuse > 0) { left.push(b); continue; }
     logLine(st, 'The charge goes off.');
     st.fx.push({ kind: 'boom', x: b.x, y: b.y, r: b.radius, t: 0 });
+    st.fx.push({ kind: 'shake', mag: 9, t: 0 });
     for (let dx = -b.radius; dx <= b.radius; dx++) {
       for (let dy = -b.radius; dy <= b.radius; dy++) {
         const x = b.x + dx, y = b.y + dy;
@@ -871,7 +921,10 @@ function advanceToward(st, u, foes) {
     const dx = Math.sign(target.x - u.x), dy = Math.sign(target.y - u.y);
     for (const [ax, ay] of [[dx, 0], [0, dy]]) {
       if ((ax || ay) && passable(st, u.x + ax, u.y + ay, u) && !occupant(st, u.x + ax, u.y + ay)) {
-        u.x += ax; u.y += ay; return;
+        const nfx = u.x, nfy = u.y;
+        u.x += ax; u.y += ay;
+        animHop(u, nfx, nfy);
+        return;
       }
     }
     return;
@@ -892,7 +945,17 @@ function advanceToward(st, u, foes) {
     if (occupant(st, x, y)) break;
     spent += c2; last = { x, y };
   }
-  if (last) { u.x = last.x; u.y = last.y; }
+  if (last) {
+    // reconstruct the walked prefix so the AI slides instead of teleporting
+    const wp = [{ x: u.x, y: u.y }];
+    for (let i = 1; i < path.length; i++) {
+      const x = path[i] % GW, y = (path[i] / GW) | 0;
+      wp.push({ x, y });
+      if (x === last.x && y === last.y) break;
+    }
+    u.x = last.x; u.y = last.y;
+    animWalk(u, wp);
+  }
 }
 
 function tryAbility(st, u, aid, ab, foes) {
@@ -917,6 +980,7 @@ function tryAbility(st, u, aid, ab, foes) {
         if (inBounds(best.f.x + dx, best.f.y + dy)) tiles.push({ x: best.f.x + dx, y: best.f.y + dy });
       }
       u.windup = { aid, ab, tiles };
+      st.fx.push({ kind: 'snd', s: 'warn' });
       u.cds[aid] = ab.cd;
       logLine(st, u.name + ' raises the maul.');
       return true;
@@ -941,6 +1005,7 @@ function tryAbility(st, u, aid, ab, foes) {
       }
       if (!best) return false;
       u.windup = { aid, ab, tiles: best.tiles };
+      st.fx.push({ kind: 'snd', s: 'warn' });
       u.cds[aid] = ab.cd;
       logLine(st, u.name + ' sights down the lane.');
       return true;
@@ -956,6 +1021,7 @@ function tryAbility(st, u, aid, ab, foes) {
       const tiles = [];
       for (let y = 0; y < GH; y++) tiles.push({ x: best.x, y });
       u.windup = { aid, ab, tiles };
+      st.fx.push({ kind: 'snd', s: 'warn' });
       u.cds[aid] = ab.cd;
       logLine(st, u.name + ' sets its hands against the props.');
       return true;

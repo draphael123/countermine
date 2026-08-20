@@ -436,4 +436,97 @@ export function mudTile(size, colour, seed) {
   });
 }
 
+// ------------------------------------------------------------------ decals
+// Scatter detail stamped over floor tiles. Baked once per (kind, seed) and
+// deliberately low-contrast: decals are texture, not information, and must
+// never read as an item or a threat.
+export function decalTile(size, kind, seed) {
+  return bake('d:' + kind + size + seed, size, size, (g, W, H) => {
+    let s = seed + 101;
+    const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+    if (kind === 'bones') {
+      g.strokeStyle = 'rgba(206,195,170,0.30)';
+      g.lineWidth = 2;
+      for (let i = 0; i < 3; i++) {
+        const x = 8 + rnd() * (W - 16), y = 8 + rnd() * (H - 16), a = rnd() * Math.PI;
+        const l = 5 + rnd() * 8;
+        g.beginPath();
+        g.moveTo(x - Math.cos(a) * l, y - Math.sin(a) * l);
+        g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
+        g.stroke();
+      }
+      g.fillStyle = 'rgba(206,195,170,0.24)';
+      g.beginPath();
+      g.arc(10 + rnd() * (W - 20), 10 + rnd() * (H - 20), 3.4, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = 'rgba(0,0,0,0.4)';
+      g.fillRect(12 + rnd() * (W - 24), 12 + rnd() * (H - 24), 2, 2);
+    } else if (kind === 'rubble') {
+      for (let i = 0; i < 6; i++) {
+        const v = rnd();
+        g.fillStyle = v > 0.5 ? 'rgba(255,240,220,0.07)' : 'rgba(0,0,0,0.22)';
+        const x = rnd() * W, y = rnd() * H, r = 2 + rnd() * 4;
+        g.beginPath();
+        g.moveTo(x, y - r); g.lineTo(x + r, y); g.lineTo(x, y + r); g.lineTo(x - r * 0.7, y + r * 0.3);
+        g.closePath(); g.fill();
+      }
+    } else if (kind === 'crack') {
+      g.strokeStyle = 'rgba(0,0,0,0.4)';
+      g.lineWidth = 1.4;
+      let x = rnd() * W * 0.4, y = rnd() * H;
+      g.beginPath(); g.moveTo(x, y);
+      for (let i = 0; i < 5; i++) {
+        x += 4 + rnd() * 9; y += (rnd() - 0.5) * 14;
+        g.lineTo(x, y);
+        if (rnd() > 0.6) { g.moveTo(x, y); g.lineTo(x + 3 + rnd() * 5, y + (rnd() - 0.5) * 10); g.moveTo(x, y); }
+      }
+      g.stroke();
+    } else if (kind === 'moss') {
+      g.fillStyle = 'rgba(96,120,70,0.16)';
+      for (let i = 0; i < 5; i++) {
+        g.beginPath();
+        g.ellipse(rnd() * W, rnd() * H, 3 + rnd() * 6, 2 + rnd() * 4, rnd() * 3, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.fillStyle = 'rgba(140,170,100,0.10)';
+      g.beginPath();
+      g.ellipse(rnd() * W, rnd() * H, 2 + rnd() * 3, 1.5 + rnd() * 2, 0, 0, Math.PI * 2);
+      g.fill();
+    } else if (kind === 'puddle') {
+      const x = W / 2 + (rnd() - 0.5) * 10, y = H / 2 + (rnd() - 0.5) * 10;
+      const rx = 8 + rnd() * 8, ry = 4 + rnd() * 4;
+      g.fillStyle = 'rgba(20,34,36,0.55)';
+      g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(140,180,180,0.14)';
+      g.lineWidth = 1;
+      g.beginPath(); g.ellipse(x, y - 1, rx * 0.7, ry * 0.6, 0, Math.PI * 1.1, Math.PI * 1.9); g.stroke();
+    } else if (kind === 'ember') {
+      for (let i = 0; i < 4; i++) {
+        const x = rnd() * W, y = rnd() * H;
+        const gr = g.createRadialGradient(x, y, 0, x, y, 5);
+        gr.addColorStop(0, 'rgba(230,120,50,0.30)');
+        gr.addColorStop(1, 'rgba(230,120,50,0)');
+        g.fillStyle = gr;
+        g.fillRect(x - 5, y - 5, 10, 10);
+        g.fillStyle = 'rgba(255,170,90,0.5)';
+        g.fillRect(x - 0.8, y - 0.8, 1.6, 1.6);
+      }
+    } else if (kind === 'blood') {
+      g.fillStyle = 'rgba(96,26,20,0.28)';
+      for (let i = 0; i < 4; i++) {
+        g.beginPath();
+        g.ellipse(rnd() * W, rnd() * H, 2 + rnd() * 5, 1.5 + rnd() * 3.5, rnd() * 3, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+  });
+}
+
+// What grows on each floor's stones.
+export const FLOOR_DECALS = {
+  1: ['bones', 'rubble', 'crack', 'blood'],
+  2: ['puddle', 'moss', 'crack', 'puddle'],
+  3: ['ember', 'rubble', 'bones', 'crack'],
+};
+
 export { shade };

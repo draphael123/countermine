@@ -239,6 +239,7 @@ canvas { display: block; border: 1px solid var(--rule); background: #0a0908; }
 
 /* ---------------------------------------------------------------- title */
 #title { justify-content: center; align-items: center; text-align: center; }
+#title > *:not(canvas) { position: relative; z-index: 1; }
 .titleMark { display: flex; align-items: center; gap: 18px; margin-bottom: 4px; }
 .titleMark i { display: block; width: 78px; height: 1px; background: linear-gradient(90deg, transparent, var(--rule2)); }
 .titleMark i.r { background: linear-gradient(90deg, var(--rule2), transparent); }
@@ -390,6 +391,7 @@ input[type=text]:focus { outline: none; border-color: var(--torch); }
 
   <!-- ------------------------------------------------------------- title -->
   <div class="screen on" id="title">
+    <canvas id="titleFx" width="1290" height="660" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></canvas>
     <div class="titleMark"><i></i><span>A siege that went underground</span><i class="r"></i></div>
     <h1>COUNTERMINE</h1>
     <div class="tag">

@@ -8,6 +8,7 @@ import * as R from './render.js';
 import { drawPortrait, CUSTOM_OPTIONS, FIGURES } from './art.js';
 import { openCreator, closeCreator, makeCaptain, defaultCaptain, randomCaptain } from './creator.js';
 import { startTutorial, tickTutorial, tutorialActive, endTutorial, hideCoach } from './tutorial.js';
+import { play, unlockAudio, setSfxEnabled, startAmbience, stopAmbience } from './sfx.js';
 
 // =========================================================== persistent meta
 const META_KEY = 'countermine_meta_v1';
@@ -20,7 +21,7 @@ const DEFAULT_META = () => ({
   seenIntro: false, seenTutorial: false, lastCaptain: null,
 });
 const DEFAULT_SETTINGS = () => ({
-  threatDefault: true, fastEnemy: false, confirmEnd: true,
+  threatDefault: true, fastEnemy: false, confirmEnd: true, sound: true,
   showForecast: true, screenShake: true, difficulty: 'regular',
 });
 
@@ -62,6 +63,8 @@ const SCREENS = ['title', 'mapScreen', 'modal', 'creator'];
 let currentScreen = 'title';
 function showScreen(id) {
   currentScreen = id;
+  if (settings.sound !== false && (id === 'battle' || id === 'mapScreen')) startAmbience();
+  if (id === 'title') stopAmbience();
   $('mEyebrow').textContent = '';
   $('modal').classList.remove('intro');
   for (const s of SCREENS) $(s).classList.toggle('on', s === id);
@@ -208,6 +211,7 @@ const NODE_ART = {
 };
 
 function openMap() {
+  saveRun();
   showScreen('mapScreen');
   const f = FLOORS[run.floorIdx];
   $('floorName').textContent = 'FLOOR ' + f.n + ' — ' + f.name;
@@ -259,29 +263,59 @@ function drawMap() {
   const W = 1200, H = 400;
   svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
   const m = run.map;
+  const accent = FLOORS[run.floorIdx].palette.accent;
   const colX = (c) => 70 + c * ((W - 150) / (m.cols - 1));
   const rowY = (r) => 80 + r * 120;
-  let s = '';
-  // links
+
+  let s = '<defs>'
+    + '<filter id="nglow" x="-80%" y="-80%" width="260%" height="260%">'
+    + '<feGaussianBlur stdDeviation="5" result="b"/>'
+    + '<feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>'
+    + '</filter>'
+    + '<radialGradient id="nbg"><stop offset="0%" stop-color="#211a13"/><stop offset="100%" stop-color="#130f0c"/></radialGradient>'
+    + '</defs>';
+
+  // Edges in three states: the roads you MAY take now burn; the roads you
+  // took are worn; everything else is barely there.
   for (const n of m.nodes) {
     for (const lid of n.links) {
       const t = m.nodes.find(x => x.id === lid);
-      const live = m.reachable.includes(n.id) || n.done;
-      s += '<line x1="' + colX(n.col) + '" y1="' + rowY(n.row) + '" x2="' + colX(t.col) + '" y2="' + rowY(t.row) +
-        '" stroke="' + (live ? '#5b4a3a' : '#2c251f') + '" stroke-width="2" stroke-dasharray="5 6"/>';
+      const active = (m.at === n.id || (!m.at && n.col === 0 && m.reachable.includes(n.id)))
+        && m.reachable.includes(lid);
+      const walked = n.done && t.done;
+      const stroke = active ? '#c2703a' : walked ? '#5b4a3a' : '#2c251f';
+      const wdt = active ? 2.5 : 1.5;
+      s += '<line x1="' + colX(n.col) + '" y1="' + rowY(n.row) + '" x2="' + colX(t.col) + '" y2="' + rowY(t.row)
+        + '" stroke="' + stroke + '" stroke-width="' + wdt + '" stroke-dasharray="5 6"'
+        + (active ? ' filter="url(#nglow)"' : '') + '/>';
     }
   }
+
   for (const n of m.nodes) {
     const art = NODE_ART[n.type];
     const can = m.reachable.includes(n.id);
+    const here = m.at === n.id;
     const x = colX(n.col), y = rowY(n.row);
-    const op = n.done ? 0.3 : (can ? 1 : 0.4);
+    const op = n.done ? 0.34 : (can ? 1 : 0.42);
     s += '<g class="mapNode' + (can ? '' : ' dis') + '" data-id="' + n.id + '" opacity="' + op + '">';
-    s += '<circle cx="' + x + '" cy="' + y + '" r="26" fill="#17130f" stroke="' + (can ? art.colour : '#3a2f26') + '" stroke-width="' + (can ? 2.5 : 1.5) + '"/>';
+    if (can) s += '<circle cx="' + x + '" cy="' + y + '" r="30" fill="none" stroke="' + art.colour + '" stroke-width="1" opacity="0.35" filter="url(#nglow)"/>';
+    s += '<circle cx="' + x + '" cy="' + y + '" r="26" fill="url(#nbg)" stroke="' + (can ? art.colour : '#3a2f26') + '" stroke-width="' + (can ? 2.5 : 1.5) + '"/>';
     s += '<text x="' + x + '" y="' + (y + 7) + '" text-anchor="middle" font-size="21" fill="' + art.colour + '">' + art.glyph + '</text>';
+    if (n.done) {
+      // scratched out in the ledger
+      s += '<line x1="' + (x - 19) + '" y1="' + (y - 19) + '" x2="' + (x + 19) + '" y2="' + (y + 19) + '" stroke="#6d6154" stroke-width="2.5"/>';
+      s += '<line x1="' + (x - 19) + '" y1="' + (y + 19) + '" x2="' + (x + 19) + '" y2="' + (y - 19) + '" stroke="#6d6154" stroke-width="1.5"/>';
+    }
     s += '<text x="' + x + '" y="' + (y + 45) + '" text-anchor="middle" font-size="12" fill="#8b8072" letter-spacing="1">' + art.label + '</text>';
+    if (here) {
+      s += '<circle cx="' + x + '" cy="' + (y - 33) + '" r="4" fill="#e0a050" filter="url(#nglow)"/>';
+      s += '<text x="' + x + '" y="' + (y - 41) + '" text-anchor="middle" font-size="10" fill="#c2703a" letter-spacing="2">HERE</text>';
+    }
     s += '</g>';
   }
+  // the way down, drawn at the far edge in the floor's own colour
+  s += '<text x="' + (W - 18) + '" y="' + (H / 2 + 4) + '" text-anchor="middle" font-size="11" fill="' + accent
+    + '" letter-spacing="3" transform="rotate(90 ' + (W - 18) + ' ' + (H / 2) + ')">DEEPER</text>';
   svg.innerHTML = s;
   svg.querySelectorAll('.mapNode').forEach(g => {
     g.addEventListener('click', () => {
@@ -290,6 +324,59 @@ function drawMap() {
       enterNode(run.map.nodes.find(n => n.id === id));
     });
   });
+}
+
+// ============================================================ run persistence
+// Saved at every return to the map and at every battle start. The RNG state is
+// serialized too, so a resumed dungeon deals the same cards it was going to.
+// Known edge: closing during the post-fight recruit screen replays that fight.
+const RUN_KEY = 'countermine_run_v1';
+
+function saveRun(pendingNodeId) {
+  if (!run) return;
+  try {
+    localStorage.setItem(RUN_KEY, JSON.stringify({
+      v: 1, seed: run.seed, rngState: run.rng.getState(),
+      floorIdx: run.floorIdx, gold: run.gold, relics: run.relics,
+      party: run.party.map(p => ({
+        id: p.id, defId: p.defId, name: p.name, hp: p.hp, maxHp: p.maxHp, kills: p.kills,
+      })),
+      captainCfg: run.captain ? run.captain.cfg : null,
+      map: run.map, fights: run.fights, kills: run.kills, losses: run.losses,
+      pendingNodeId: pendingNodeId || null,
+      uidCounter,
+    }));
+  } catch (e) { /* storage full or blocked -- play on without saves */ }
+}
+
+function clearRun() { try { localStorage.removeItem(RUN_KEY); } catch (e) {} }
+function savedRun() {
+  try { return JSON.parse(localStorage.getItem(RUN_KEY) || 'null'); } catch (e) { return null; }
+}
+
+function resumeRun() {
+  const d = savedRun();
+  if (!d) return false;
+  try {
+    const rng = E.makeRng(d.seed);
+    rng.setState(d.rngState);
+    const cap = makeCaptain(d.captainCfg || defaultCaptain());
+    run = {
+      seed: d.seed, rng, floorIdx: d.floorIdx, gold: d.gold, relics: d.relics || [],
+      party: d.party.map(p => p.defId === 'captain'
+        ? Object.assign({}, p, { def: cap.def, custom: cap.custom }) : p),
+      captain: cap, map: d.map,
+      fights: d.fights, kills: d.kills, losses: d.losses,
+      cleared: 0, tutorial: false, nodeId: null,
+    };
+    uidCounter = Math.max(uidCounter, d.uidCounter || 1);
+    if (d.pendingNodeId) {
+      const n = run.map.nodes.find(x => x.id === d.pendingNodeId);
+      if (n && !n.done) { enterNode(n); return true; }
+    }
+    openMap();
+    return true;
+  } catch (e) { clearRun(); return false; }
 }
 
 function advanceFrom(node) {
@@ -352,6 +439,7 @@ function rollEnemies(rng, floor, kind, partySize) {
 }
 
 function startBattle(node) {
+  saveRun(node.id);
   const floor = FLOORS[run.floorIdx];
   const kind = node.type === 'boss' ? 'boss' : node.type === 'elite' ? 'elite' : 'fight';
   const tutorialFight = run.tutorial && run.fights === 0 && kind === 'fight';
@@ -367,6 +455,7 @@ function startBattle(node) {
   });
   st.difficulty = settings.difficulty;
   view.palette = floor.palette;
+  view.floorN = floor.n;
   view.threat = settings.threatDefault ? E.threatMap(st) : null;
   view.selected = null; view.moveTiles = null; view.targetTiles = null; view.path = null;
   mode = 'idle';
@@ -387,6 +476,7 @@ function startBattle(node) {
 }
 
 function banner(text, ms) {
+  if (settings.sound !== false) play('drum');
   const b = $('banner');
   b.firstElementChild.textContent = text;
   b.classList.add('on');
@@ -484,6 +574,7 @@ function onBoardClick(t) {
 }
 
 function select(uid) {
+  if (settings.sound !== false) play('select');
   view.selected = uid;
   const u = unitByUid(uid);
   mode = 'idle';
@@ -758,7 +849,7 @@ function screenAftermath(gold, dead) {
   foot.innerHTML = '';
   const skip = document.createElement('button');
   skip.textContent = 'Leave all three (+40 gold)';
-  skip.addEventListener('click', () => { run.gold += 40; advanceFrom(pendingNode); });
+  skip.addEventListener('click', () => { run.gold += 40; play('coin'); advanceFrom(pendingNode); });
   foot.appendChild(skip);
   const hint = document.createElement('div');
   hint.className = 'hint';
@@ -957,6 +1048,7 @@ function takeRelicVendor(rid, render) {
 
 // ============================================================== run ending
 function runLost(dead) {
+  clearRun();
   const banked = Math.round(run.gold * 0.35) + run.kills * 3 + run.floorIdx * 40 + run.fights * 8;
   meta.tallies += banked;
   meta.deepest = Math.max(meta.deepest, run.floorIdx + 1);
@@ -983,6 +1075,8 @@ function runLost(dead) {
 }
 
 function runWon() {
+  clearRun();
+  if (settings.sound !== false) play('bell');
   const banked = Math.round(run.gold * 0.5) + run.kills * 4 + 200;
   meta.tallies += banked; meta.wins++; meta.deepest = 3;
   saveMeta();
@@ -1097,6 +1191,14 @@ function screenSettings() {
       settings.showForecast, () => settings.showForecast = !settings.showForecast);
     card('Quick enemy turn', 'Half the pause between their moves', 'Faster once you know what everything does. Harder to follow the first few runs.',
       settings.fastEnemy, () => settings.fastEnemy = !settings.fastEnemy);
+    card('Sound', 'Synthesized, no downloads', 'Hits, bows, powder, the wind-up horn, and the cave air. All generated live.',
+      settings.sound !== false, () => {
+        settings.sound = settings.sound === false;
+        setSfxEnabled(settings.sound !== false);
+        if (settings.sound === false) stopAmbience();
+      });
+    card('Screen shake', 'Hits rattle the board', 'A slap of movement on big hits, deaths, and powder. Turn it off if it bothers your eyes.',
+      settings.screenShake !== false, () => settings.screenShake = settings.screenShake === false);
     card('Confirm end of turn', 'Ask if someone has not moved', 'Stops you ending the round with a soldier still standing there doing nothing.',
       settings.confirmEnd, () => settings.confirmEnd = !settings.confirmEnd);
 
@@ -1165,7 +1267,31 @@ function goTitle() {
     ? 'Companies sent down: <span class="tally">' + meta.runs + '</span> · deepest floor: <span class="tally">'
     + meta.deepest + '</span> · tallies: <span class="tally">' + meta.tallies + '</span>'
     : 'No company has gone down yet.';
+  // Continue button appears only while a dig is actually saved.
+  const old = $('btnContinue');
+  if (old) old.remove();
+  const d = savedRun();
+  if (d) {
+    const b = document.createElement('button');
+    b.id = 'btnContinue';
+    b.className = 'primary';
+    b.textContent = 'Continue — Floor ' + (d.floorIdx + 1) + ', ' + d.party.length
+      + (d.party.length === 1 ? ' soldier' : ' soldiers');
+    b.addEventListener('click', () => { if (!resumeRun()) goTitle(); });
+    $('btnStart').before(b);
+    $('btnStart').classList.remove('primary');
+  } else {
+    $('btnStart').classList.add('primary');
+  }
 }
+
+// ================================================================== audio
+document.addEventListener('pointerdown', unlockAudio, { once: true });
+document.addEventListener('click', (ev) => {
+  if (settings.sound === false) return;
+  if (ev.target.closest && ev.target.closest('button')) play('ui');
+});
+setSfxEnabled(settings.sound !== false);
 
 // =================================================================== keys
 window.addEventListener('keydown', (ev) => {
@@ -1234,6 +1360,39 @@ function fitStage() {
 window.addEventListener('resize', fitStage);
 fitStage();
 
+// ============================================================ title embers
+// Sparks drifting up from an unseen fire below the frame. Runs only while
+// the title is showing; costs nothing anywhere else.
+const embers = [];
+function drawTitleFx(dt) {
+  const cvx = $('titleFx');
+  if (!cvx) return;
+  const g2 = cvx.getContext('2d');
+  g2.clearRect(0, 0, cvx.width, cvx.height);
+  if (embers.length < 46 && Math.random() < 0.3) {
+    embers.push({
+      x: 120 + Math.random() * (cvx.width - 240), y: cvx.height + 6,
+      vy: 14 + Math.random() * 22, drift: Math.random() * 6.28,
+      r: 0.8 + Math.random() * 1.7, life: 0, dur: 7000 + Math.random() * 6000,
+    });
+  }
+  for (let i = embers.length - 1; i >= 0; i--) {
+    const e = embers[i];
+    e.life += dt;
+    e.y -= e.vy * dt / 1000;
+    e.x += Math.sin(e.life / 900 + e.drift) * 0.25;
+    const p = e.life / e.dur;
+    if (p >= 1 || e.y < -8) { embers.splice(i, 1); continue; }
+    const a = p < 0.1 ? p * 10 : (1 - p);
+    g2.globalAlpha = a * 0.7;
+    g2.fillStyle = p > 0.6 ? '#8a4f22' : '#e0904a';
+    g2.beginPath();
+    g2.arc(e.x, e.y, e.r * (1 - p * 0.4), 0, 6.29);
+    g2.fill();
+  }
+  g2.globalAlpha = 1;
+}
+
 // ================================================================= main loop
 let lastFrame = 0;
 function frame(ts) {
@@ -1243,6 +1402,7 @@ function frame(ts) {
   requestAnimationFrame(frame);
 }
 function step(dt) {
+  if ($('title').classList.contains('on')) { drawTitleFx(dt); return; }
   if (!st || !$('battle').classList.contains('on')) return;
   if (st.phase === 'enemy') {
     enemyTimer -= dt;
@@ -1265,6 +1425,28 @@ function step(dt) {
     st.endingQueued = true;
     setTimeout(endBattle, 700);
   }
+  // translate battle events to audio here, never in the engine: headless
+  // sims share these code paths and must stay silent
+  if (settings.sound !== false) {
+    for (const f of st.fx) {
+      if (f.heard || f.kind === 'shake') continue;
+      f.heard = true;
+      if (f.kind === 'hit' && f.amount != null) play(f.amount >= 10 ? 'heavy' : 'hit');
+      else if (f.kind === 'death') play(f.side === 'player' ? 'dirge' : 'death');
+      else if (f.kind === 'boom') play('boom');
+      else if (f.kind === 'sweep') play('sweep');
+      else if (f.kind === 'heal') play('heal');
+      else if (f.kind === 'snd') play(f.s);
+    }
+    st.fx = st.fx.filter(f => f.kind !== 'snd');
+    if (st.units.some(u => u.alive && u.anim && u.anim.kind === 'walk')) {
+      if (!step.lastStepSnd || performance.now() - step.lastStepSnd > 130) {
+        step.lastStepSnd = performance.now();
+        play('step');
+      }
+    }
+  }
+  view.shakeEnabled = settings.screenShake !== false;
   R.draw(ctx, st, view);
   tickTutorial();
 }
@@ -1290,7 +1472,7 @@ window.CM = {
   get meta() { return meta; },
   get settings() { return settings; },
   newRun, goTitle,
-  wipeMeta() { meta = DEFAULT_META(); saveMeta(); goTitle(); },
+  wipeMeta() { meta = DEFAULT_META(); saveMeta(); clearRun(); goTitle(); },
   sim, simOne, makeCaptain, randomCaptain, defaultCaptain,
   // Hooks used to drive the real UI in a test, so a broken screen transition
   // shows up as a failed assertion instead of as a silent dead click.
