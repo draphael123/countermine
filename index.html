@@ -12,6 +12,16 @@
    Rules: square corners only. Rules and ticks instead of boxes. One warm light
    source (torch) against cold stone. Numerals are always monospace.
    ========================================================================== */
+@font-face {
+  font-family: 'IM Fell'; font-style: normal; font-weight: 400;
+  src: url('./fonts/imfell.woff2') format('woff2');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IM Fell'; font-style: italic; font-weight: 400;
+  src: url('./fonts/imfell-italic.woff2') format('woff2');
+  font-display: swap;
+}
 :root {
   --bg:      #0a0908;
   --stone:   #14110e;
@@ -53,7 +63,7 @@ body::after {
 }
 
 .mono { font-family: "Courier New", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
-h1, h2, h3, h4 { font-weight: 400; margin: 0; }
+h1, h2, h3, h4 { font-weight: 400; margin: 0; font-family: 'IM Fell', "Iowan Old Style", Georgia, serif; }
 
 /* ---------------------------------------------------------------- buttons */
 button {
@@ -89,7 +99,8 @@ button.primary:hover:not(:disabled) { background: linear-gradient(#4d2f16, #3220
 }
 .hd {
   display: flex; align-items: center; gap: 13px;
-  font-size: 21px; letter-spacing: .26em; text-transform: uppercase; color: var(--bone);
+  font-family: 'IM Fell', Georgia, serif;
+  font-size: 22px; letter-spacing: .26em; text-transform: uppercase; color: var(--bone);
 }
 .hd::after {
   content: ''; flex: 1 1 auto; height: 1px;
@@ -164,7 +175,18 @@ body.reduced-motion #mapSvg line.march { animation: none; }
 #coach .dot { display: inline-block; width: 6px; height: 6px; margin-left: 4px; background: #3c3128; transform: rotate(45deg); }
 #coach .dot.done { background: var(--torch-d); }
 #coach .dot.now { background: var(--torch); box-shadow: 0 0 6px rgba(212,130,60,.8); }
+#tipCard {
+  position: absolute; right: 14px; bottom: 14px; width: 300px; z-index: 80;
+  background: linear-gradient(180deg, #241c13, #14100c);
+  border: 1px solid var(--torch-d); border-left: 3px solid var(--torch);
+  padding: 11px 14px; opacity: 0; transform: translateY(8px);
+  transition: opacity .3s, transform .3s; pointer-events: none;
+}
+#tipCard.on { opacity: 1; transform: none; }
+#tipCard p { margin: 0; font-size: 12.5px; line-height: 1.55; color: #d9cdb6; }
+u.kw { text-decoration: underline dotted var(--torch-d); text-underline-offset: 2px; cursor: help; }
 #banner div {
+  font-family: 'IM Fell', Georgia, serif;
   font-size: 36px; letter-spacing: .36em; color: var(--bone);
   text-shadow: 0 0 40px #000, 0 3px 0 #000;
   border-top: 1px solid var(--rule2); border-bottom: 1px solid var(--rule2);
@@ -281,7 +303,8 @@ body.reduced-motion #mapSvg line.march { animation: none; }
 .titleMark i.r { background: linear-gradient(90deg, var(--rule2), transparent); }
 .titleMark span { font-size: 10px; letter-spacing: .42em; color: var(--torch); text-transform: uppercase; }
 #title h1 {
-  font-size: 60px; letter-spacing: .40em; margin-left: .40em; color: #e8dcc2;
+  font-family: 'IM Fell', Georgia, serif;
+  font-size: 62px; letter-spacing: .40em; margin-left: .40em; color: #e8dcc2;
   text-shadow: 0 0 60px rgba(212,130,60,.22);
 }
 #title .tag { color: var(--ink-dim); font-size: 13.5px; margin: 16px 0 30px; font-style: italic; max-width: 540px; line-height: 1.75; }
@@ -303,6 +326,17 @@ body.reduced-motion #mapSvg line.march { animation: none; }
 #modal.intro .choice::before { display: none; }
 #modal.intro .blurb { font-size: 18.5px !important; line-height: 1.9 !important; color: #c8bba4 !important; font-style: normal; }
 #modal.intro .foot { margin-top: 44px; }
+#modal.intro .blurb::first-letter {
+  font-family: 'IM Fell', Georgia, serif; font-size: 46px; line-height: .8;
+  float: left; padding: 5px 8px 0 0; color: var(--torch);
+}
+.stamp {
+  position: absolute; top: 10px; right: 12px; transform: rotate(8deg);
+  font-family: 'IM Fell', Georgia, serif; font-size: 15px; letter-spacing: .3em;
+  padding: 4px 10px; border: 2px solid currentColor; opacity: .8;
+}
+.stamp.won { color: var(--gold); }
+.stamp.lost { color: var(--blood); }
 
 /* -------------------------------------------------------------- creator */
 #creator { display: none; flex-direction: column; }
@@ -394,6 +428,10 @@ input[type=text]:focus { outline: none; border-color: var(--torch); }
 </head>
 <body>
 <div id="app"><div id="stage">
+  <div id="tipCard">
+    <div class="eyebrow" style="margin-bottom:5px">First time · <span id="tipTitle"></span></div>
+    <p id="tipText"></p>
+  </div>
   <div id="fader" style="position:absolute;inset:0;background:#070605;opacity:0;pointer-events:none;z-index:90"></div>
 
   <!-- ------------------------------------------------------------ battle -->

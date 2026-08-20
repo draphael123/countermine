@@ -69,6 +69,40 @@ function drawFloorParticles(ctx, floorN, t) {
   }
 }
 
+// the dug-out frame: irregular dark rubble ringing the whole board
+let edgeCv = null;
+function edgeFrame() {
+  if (edgeCv) return edgeCv;
+  edgeCv = document.createElement('canvas');
+  edgeCv.width = CW; edgeCv.height = CH;
+  const g = edgeCv.getContext('2d');
+  let s = 4242;
+  const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+  g.fillStyle = '#060504';
+  const jag = (x, y, horiz) => {
+    const len = 8 + rnd() * 16;
+    const depth = 3 + rnd() * 8;
+    g.beginPath();
+    if (horiz) {
+      g.moveTo(x, y); g.lineTo(x + len, y);
+      g.lineTo(x + len * 0.7, y + (y < CH / 2 ? depth : -depth));
+      g.lineTo(x + len * 0.2, y + (y < CH / 2 ? depth * 0.6 : -depth * 0.6));
+    } else {
+      g.moveTo(x, y); g.lineTo(x, y + len);
+      g.lineTo(x + (x < CW / 2 ? depth : -depth), y + len * 0.7);
+      g.lineTo(x + (x < CW / 2 ? depth * 0.6 : -depth * 0.6), y + len * 0.2);
+    }
+    g.closePath(); g.fill();
+  };
+  for (let x = 0; x < CW; x += 12) { jag(x, 0, true); jag(x, CH, true); }
+  for (let y = 0; y < CH; y += 12) { jag(0, y, false); jag(CW, y, false); }
+  // a faint lit lip just inside the break
+  g.strokeStyle = 'rgba(212,170,120,0.05)';
+  g.lineWidth = 1;
+  g.strokeRect(7.5, 7.5, CW - 15, CH - 15);
+  return edgeCv;
+}
+
 // one soft blob sheet, tiled and scrolled two ways for depth
 let hazeCv = null;
 function hazeSheet() {
@@ -121,8 +155,14 @@ function drawPos(u, t) {
   if (u.lunge) {
     const p = (t - u.lunge.start) / u.lunge.dur;
     if (p >= 1) { u.lunge = null; }
-    else {
-      const amp = Math.sin(p * Math.PI) * 13;
+    else if (p < 0.3) {
+      // anticipation: pull back before the blow
+      const wb = Math.sin((p / 0.3) * Math.PI) * 5;
+      px -= u.lunge.dx * wb;
+      py -= u.lunge.dy * wb;
+    } else {
+      const p2 = (p - 0.3) / 0.7;
+      const amp = Math.sin(p2 * Math.PI) * 15;
       px += u.lunge.dx * amp;
       py += u.lunge.dy * amp;
     }
@@ -131,12 +171,19 @@ function drawPos(u, t) {
 }
 
 export function draw(ctx, st, view) {
+  // hit-stop: while frozen, every animation samples the same instant
+  const rawT = now();
+  if (view.freezeUntil && rawT < view.freezeUntil) {
+    draw.frozenT = draw.frozenT || rawT;
+  } else {
+    draw.frozenT = null;
+  }
   const pal = view.palette || { floor: '#2b2724', wall: '#43392f', accent: '#6a4a2f' };
   ctx.clearRect(0, 0, CW, CH);
   ctx.fillStyle = '#0b0908';
   ctx.fillRect(0, 0, CW, CH);
 
-  const t = now();
+  const t = draw.frozenT || rawT;
 
   // ---- screen shake: consume shake fx into a decaying offset
   ctx.save();
@@ -584,6 +631,9 @@ export function draw(ctx, st, view) {
     ctx.restore();
   }
 
+  // ---- the excavated edge
+  ctx.drawImage(edgeFrame(), 0, 0);
+
   // ---- hover cursor
   if (view.hover && view.hover.x >= 0 && view.hover.y >= 0 && view.hover.x < GW && view.hover.y < GH) {
     const { px, py } = tileToPx(view.hover.x, view.hover.y);
@@ -881,15 +931,18 @@ function drawFx(ctx, st) {
         keep.push(f);
       }
     } else if (f.kind === 'fall') {
-      const life = f.t / 30;
+      const life = f.t / 190;   // tip over fast, then lie there
       if (life < 1) {
         const { px, py } = tileToPx(f.x, f.y);
         const spr2 = unitSprite(f.defId, f.custom, 'idle');
+        const tip = Math.min(1, f.t / 22);          // the fall itself
+        const fade = life > 0.78 ? 1 - (life - 0.78) / 0.22 : 1;
         ctx.save();
-        ctx.globalAlpha = 0.9 * (1 - life * life);
+        ctx.globalAlpha = (tip < 1 ? 0.9 : 0.55) * fade;
+        if (tip >= 1) ctx.filter = 'brightness(0.55) saturate(0.6)';
         ctx.translate(px + TILE / 2, py + TILE);
         ctx.scale(f.face || 1, 1);
-        ctx.rotate(Math.min(1, life * 1.6) * Math.PI / 2);
+        ctx.rotate(tip * Math.PI / 2);
         ctx.drawImage(spr2, -spr2.width / 2, -spr2.height + 4);
         ctx.restore();
         keep.push(f);

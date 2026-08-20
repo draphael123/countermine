@@ -19,7 +19,7 @@ const DEFAULT_META = () => ({
   classes: Object.keys(CLASSES).filter(k => !CLASSES[k].locked),
   relics: RELICS.filter(r => !r.locked).map(r => r.id),
   seenIntro: false, seenTutorial: false, lastCaptain: null,
-  seenFoes: [], foeKills: {}, history: [],
+  seenFoes: [], foeKills: {}, history: [], tipsSeen: [], lossCoached: false,
 });
 const DEFAULT_SETTINGS = () => ({
   threatDefault: true, fastEnemy: false, confirmEnd: true, sound: true,
@@ -450,6 +450,9 @@ let pendingNode = null;
 
 function enterNode(node) {
   pendingNode = node;
+  if (node.type === 'cache') tip('cache');
+  else if (node.type === 'camp') tip('camp');
+  else if (node.type === 'vendor') tip('vendor');
   if (node.type === 'fight' || node.type === 'elite' || node.type === 'boss') startBattle(node);
   else if (node.type === 'camp') screenCamp();
   else if (node.type === 'cache') screenCache();
@@ -779,6 +782,9 @@ function syncUI() {
     hint.textContent = 'Click a soldier, then a lit tile, to set the line.';
     ab.appendChild(hint);
   } else if (u && u.alive && u.side === 'player') {
+    const KIND_GLYPH = { attack: '⚔', pull: '⥉', cone: '⚔', bomb: '◉',
+      heal: '✚', cleanse: '✚', buff: '✦', aura_buff: '✦', aura_guard: '⛨',
+      oath: '⛨', martyr: '❤', blink: '↯', place_barricade: '⛨' };
     const KIND_COL = { attack: '#c25a3e', pull: '#c25a3e', cone: '#c25a3e', bomb: '#e0894a',
       heal: '#7f9b52', cleanse: '#7f9b52', buff: '#cbab63', aura_buff: '#cbab63', aura_guard: '#7d9ec4',
       oath: '#7d9ec4', martyr: '#d06a5a', blink: '#b08ad0', place_barricade: '#7d9ec4' };
@@ -786,7 +792,8 @@ function syncUI() {
       const b = document.createElement('button');
       b.className = 'abBtn' + (armed ? ' armed' : '');
       b.style.borderLeft = '3px solid ' + (kindCol || '#4a3d31');
-      b.innerHTML = '<b>' + label + '</b>' + (sub ? '<span class="sub">' + sub + '</span>' : '');
+      const glyph = arguments.length > 7 && arguments[7] ? '<span style="color:' + (kindCol || '#8a7d6a') + ';margin-right:6px">' + arguments[7] + '</span>' : '';
+      b.innerHTML = '<b>' + glyph + label + '</b>' + (sub ? '<span class="sub">' + sub + '</span>' : '');
       b.disabled = !on;
       if (on) b.addEventListener('click', fn);
       if (preview) {
@@ -800,15 +807,15 @@ function syncUI() {
     mk('Attack [A]',
       'Range ' + (u.minRange > 1 ? u.minRange + '–' : '') + u.range + ' · ' + u.atk[0] + '–' + u.atk[1] + ' damage' + (loadOk ? '' : ' · NEEDS RELOADING'),
       !acted && loadOk, mode === 'attack', armAttack,
-      () => E.attackTargets(st, u).map(x => ({ x: x.x, y: x.y })), '#c25a3e');
+      () => E.attackTargets(st, u).map(x => ({ x: x.x, y: x.y })), '#c25a3e', '⚔');
     u.abilities.forEach((aid, i) => {
       const a = ABILITIES[aid];
       const cd = u.cds[aid] || 0;
       const ch = a.charges ? (u.charges[aid] || 0) : null;
-      const sub = a.desc + (cd > 0 ? ' · ready in ' + cd : '') + (ch != null ? ' · ' + ch + ' left' : '');
+      const sub = kw(a.desc) + (cd > 0 ? ' · ready in ' + cd : '') + (ch != null ? ' · ' + ch + ' left' : '');
       mk(a.name + ' [' + (i + 1) + ']', sub, !acted && E.abilityReady(u, aid),
         armedAbility === aid, () => armAbility(aid),
-        () => E.abilityTargets(st, u, aid), KIND_COL[a.kind]);
+        () => E.abilityTargets(st, u, aid), KIND_COL[a.kind], KIND_GLYPH[a.kind]);
     });
     if (u.usesLoad) mk('Reload [R]', 'Spend the action winding the bow.', !acted && !u.loaded, false, () => { E.reload(st, u); afterAction(u); });
     if (u.moved && !u.acted) mk('Take it back [U]', 'Undo the move.', true, false, () => {
@@ -851,7 +858,7 @@ function updateInspect(t) {
           + (p.max >= o.hp ? ' — could finish it' : '') + '</span><br>';
       }
     }
-    if (o.statuses.length) s += '<span class="mono" style="color:#8b8072">' + o.statuses.map(x => x.id).join(', ') + '</span><br>';
+    if (o.statuses.length) s += '<span class="mono" style="color:#8b8072">' + o.statuses.map(x => '<u class="kw" title="' + (KEYWORDS[x.id] || '') + '">' + x.id + '</u>').join(', ') + '</span><br>';
     s += '<i style="color:#7d7264">' + o.def.blurb + '</i>';
     el.innerHTML = s;
     return;
@@ -902,6 +909,7 @@ function endBattle() {
     run.fallen.push({ name: d.name, defId: d.defId, custom: d.custom, floor: run.floorIdx + 1 });
     recordFate(d, 'fell', run.floorIdx + 1);
   }
+  if (dead.length) tip('death');
   run.losses += dead.length;
   run.kills += st.units.filter(u => u.side === 'enemy' && !u.alive).length;
 
@@ -943,7 +951,9 @@ function renderEpitaph(banked, won) {
   }
   const tal = document.createElement('div');
   tal.className = 'choice locked';
-  tal.innerHTML = '<h3>+' + banked + ' tallies</h3><div class="role">Banked</div>' +
+  tal.style.position = 'relative';
+  tal.innerHTML = '<div class="stamp ' + (won ? 'won' : 'lost') + '">' + (won ? 'RETURNED' : 'LOST') + '</div>' +
+    '<h3>+' + banked + ' tallies</h3><div class="role">Banked</div>' +
     '<div class="stats mono">' + run.fights + ' battles · ' + run.kills + ' slain</div>' +
     (run.relics.length ? '<div class="blurb">Carried: ' + run.relics.map(rid => (RELICS.find(x => x.id === rid) || {}).name).join(', ') + '</div>' : '<div class="blurb">Carried nothing but orders.</div>');
   box.appendChild(tal);
@@ -986,6 +996,7 @@ function screenAftermath(gold, dead) {
   if (gold === undefined && aftermath) { gold = aftermath.gold; dead = aftermath.dead; }
   const isBoss = pendingNode.type === 'boss';
   const full = run.party.length >= 4;
+  if (full) tip('fullparty');
   $('mEyebrow').textContent = full
     ? 'Recruit — the company is full at four'
     : 'Recruit — ' + (4 - run.party.length) + ' billet' + (4 - run.party.length === 1 ? '' : 's') + ' open';
@@ -1030,11 +1041,12 @@ function screenAftermath(gold, dead) {
       '<div class="role" style="color:' + (c.colour || 'var(--torch)') + '">' + c.name + ' · ' + c.role + (have ? ' · already have one' : '') + '</div>' +
       '<div class="stats mono">' + o.hp + '/' + c.hp + ' hp · ' + c.armor + ' armour · ' + c.mov + ' move'
       + '<br>hits ' + c.atk[0] + '–' + c.atk[1] + ' at range ' + (c.minRange > 1 ? c.minRange + '–' : '') + c.range + '</div>' +
-      c.abilities.map(a => '<div class="abLine"><b>' + ABILITIES[a].name + '</b> — ' + ABILITIES[a].desc + '</div>').join('') +
+      c.abilities.map(a => '<div class="abLine"><b>' + ABILITIES[a].name + '</b> — ' + kw(ABILITIES[a].desc) + '</div>').join('') +
       '<div class="blurb" style="margin-top:10px">' + c.blurb + '</div>';
     d.addEventListener('click', () => {
       if (full) { chooseWhoToLeave(o); return; }
       run.party.push({ id: uidCounter++, defId: o.defId, name: o.name, hp: o.hp, maxHp: c.hp, kills: 0 });
+      if (c.reload) tip('reloadR');
       if (settings.sound !== false) play('recruit');
       advanceFrom(pendingNode);
     });
@@ -1256,7 +1268,25 @@ function runLost(dead) {
   meta.deepest = Math.max(meta.deepest, run.floorIdx + 1);
   saveMeta();
   showScreen('modal');
+  tip('tallies');
   $('mEyebrow').textContent = 'The run is over';
+  if (!meta.lossCoached) {
+    meta.lossCoached = true; saveMeta();
+    setTimeout(() => {
+      const foot = $('mFoot');
+      const adv = document.createElement('div');
+      adv.className = 'hint';
+      adv.style.cssText = 'flex-basis:100%;color:var(--ink-dim)';
+      adv.textContent = 'Most companies die standing on orange tiles, or trading hits they could have walked away from. The Ledger of Foes reads free.';
+      foot.appendChild(adv);
+      if (settings.difficulty === 'regular') {
+        const soft = document.createElement('button');
+        soft.textContent = 'Try Merciful (fewer foes, softer hits)';
+        soft.addEventListener('click', () => { settings.difficulty = 'merciful'; saveSettings(); soft.textContent = 'Merciful set for the next dig'; soft.disabled = true; });
+        foot.appendChild(soft);
+      }
+    }, 50);
+  }
   $('mTitle').textContent = 'THE COMPANY IS GONE';
   $('mLede').textContent = 'Floor ' + (run.floorIdx + 1) + '. ' + run.kills + ' of theirs, ' + run.losses + ' of yours. '
     + 'Somebody will scratch the tally on the wall by the stair.';
@@ -1331,7 +1361,7 @@ function screenRoster() {
         '<div class="role" style="color:' + (c.colour || 'var(--torch)') + '">' + c.role + ' · ' +
         (owned ? 'in the recruit pool' : 'click to unlock') + '</div>' +
         '<div class="stats mono">' + c.hp + ' hp · ' + c.armor + ' armour · ' + c.mov + ' move · hits ' + c.atk[0] + '–' + c.atk[1] + '</div>' +
-        c.abilities.map(a => '<div class="abLine"><b>' + ABILITIES[a].name + '</b> — ' + ABILITIES[a].desc + '</div>').join('') +
+        c.abilities.map(a => '<div class="abLine"><b>' + ABILITIES[a].name + '</b> — ' + kw(ABILITIES[a].desc) + '</div>').join('') +
         '<div class="blurb" style="margin-top:8px">' + c.blurb + '</div>';
       if (can) d.addEventListener('click', () => {
         meta.tallies -= c.cost; meta.classes.push(key); saveMeta(); play('recruit'); render();
@@ -1410,6 +1440,50 @@ function recordFate(soldier, fate, floor) {
   });
   if (meta.history.length > 60) meta.history = meta.history.slice(-60);
   saveMeta();
+}
+
+// ------------------------------------------------------------ status keywords
+const KEYWORDS = {
+  bleed: 'Bleed: 3 damage at the start of each of its turns, for 3 turns. Armour does not help.',
+  bleeding: 'Bleed: 3 damage at the start of each of its turns, for 3 turns. Armour does not help.',
+  burning: 'Burning: 3 damage at the start of each of its turns, for 2 turns. Armour does not help.',
+  pinned: 'Pinned: cannot move on its next turn. It can still act.',
+  hasted: 'Hasted: +2 movement on its next turn.',
+  guarded: 'Guarded: incoming hits are reduced while this holds.',
+  rallied: 'Rallied: +3 damage on every attack while this holds.',
+  'off-balance': 'Off-balance: the next hit is worse.',
+};
+function kw(text) {
+  if (!text) return text;
+  return text.replace(/(bleeding|bleed|burning|pinned|hasted|guarded|rallied)/gi,
+    (m) => '<u class="kw" title="' + (KEYWORDS[m.toLowerCase()] || '') + '">' + m + '</u>');
+}
+
+// ============================================================ first-time tips
+// One card the FIRST time a concept appears, then never again. This is the
+// onboarding that the tutorial cannot do: teaching things when they happen.
+const TIPS = {
+  cache: ['Relics', 'A relic is a permanent boost for this run. You can carry FIVE; a sixth means dropping one. Taking the gold instead is never wrong.'],
+  camp: ['Camps', 'One choice only: heal everyone, drill one soldier permanently, or strip it for gold. Camps are rare — spend them on whatever is scarcest.'],
+  vendor: ['The quartermaster', 'Gold dies with the run. There is no reason to hoard it — leave with empty pockets and full plate.'],
+  windup: ['Wind-ups', 'The bright orange tiles WILL be hit at the start of their next turn. Standing in them is always a mistake. This rule never bends.'],
+  reloadR: ['The crossbow', 'Crossbows hit hardest in the company, but every shot costs a turn of winding. Shoot, reload, shoot — plan the rhythm.'],
+  fullparty: ['Four is the cap', 'Taking a fifth means leaving one of yours in the dark — and that is a death, not a bench. Gold is the safe answer.'],
+  death: ['Nobody comes back', 'That soldier is gone for the run, and the next fights scale to the company you still have. Retreat is a real option — a hurt soldier pulled back is a soldier kept.'],
+  tallies: ['Tallies', 'The one thing that survives a run. Spend them on THE ROSTER to add classes and relics to what future runs can find.'],
+};
+
+function tip(id) {
+  if (!TIPS[id] || meta.tipsSeen.includes(id)) return;
+  meta.tipsSeen.push(id); saveMeta();
+  const el = $('tipCard');
+  if (!el) return;
+  $('tipTitle').textContent = TIPS[id][0];
+  $('tipText').textContent = TIPS[id][1];
+  el.classList.add('on');
+  if (settings.sound !== false) play('select');
+  clearTimeout(tip.tk);
+  tip.tk = setTimeout(() => el.classList.remove('on'), 9000);
 }
 
 // ============================================================ ledger of foes
@@ -1836,12 +1910,15 @@ function step(dt) {
       if (f.heard || f.kind === 'shake') continue;
       f.heard = true;
       const o = { pan: panOf(f.x != null ? f.x : f.x2) };
-      if (f.kind === 'hit' && f.amount != null) play(f.amount >= 10 ? 'heavy' : 'hit', o);
-      else if (f.kind === 'death') play(f.side === 'player' ? 'dirge' : 'death', o);
-      else if (f.kind === 'boom') play('boom', o);
+      if (f.kind === 'hit' && f.amount != null) {
+        play(f.amount >= 10 ? 'heavy' : 'hit', o);
+        if (f.amount >= 10 && !settings.reducedMotion) { view.freezeUntil = performance.now() + 70; }
+      }
+      else if (f.kind === 'death') { play(f.side === 'player' ? 'dirge' : 'death', o); if (!settings.reducedMotion) view.freezeUntil = performance.now() + 90; }
+      else if (f.kind === 'boom') { play('boom', o); if (!settings.reducedMotion) view.freezeUntil = performance.now() + 100; }
       else if (f.kind === 'sweep') play('sweep', o);
       else if (f.kind === 'heal') play('heal', o);
-      else if (f.kind === 'snd') play(f.s, o);
+      else if (f.kind === 'snd') { play(f.s, o); if (f.s === 'warn') tip('windup'); }
     }
     st.fx = st.fx.filter(f => f.kind !== 'snd');
     const walker = st.units.find(u => u.alive && u.anim && u.anim.kind === 'walk');

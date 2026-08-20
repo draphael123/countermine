@@ -24,279 +24,216 @@ function shade(hex, amt) {
 }
 
 // --------------------------------------------------------------- the figure
-// spec: { cloth, metal, skin, bulk, tall, helm, weapon, beast, tabard }
-// pose: 'idle' | 'walkA' | 'walkB' -- the two walk frames scissor the legs.
-function drawFigure(g, w, h, spec, pose) {
-  const cx = w / 2;
-  const ground = h - 6;
-  const bulk = spec.bulk || 1;
-  const tall = spec.tall || 1;
-  // One lift applied to every figure: the specs were picked against a lighter
-  // mock-up and vanished on the real floor colours.
+// PIXEL-ART figures: everything is painted in whole cells on a coarse grid,
+// which turns "procedural shapes" into a deliberate style. One cell = 4px.
+// spec: { cloth, metal, bulk, tall, helm, weapon, beast, tabard, plume }
+// pose: 'idle' | 'walkA' | 'walkB'
+const CELL = 4;
+const FIG_W = 26, FIG_H = 30;   // cells; sprite canvas = 104 x 120 px + pad
+
+function drawFigure(g, spec, pose) {
+  const cell = (spec.bulk || 1) > 1.3 ? 5 : CELL;   // bosses: bigger, still crisp
+  const P = (x, y, w, h, c) => {
+    g.fillStyle = c;
+    g.fillRect(Math.round(x) * cell, Math.round(y) * cell, Math.round(w) * cell, Math.round(h) * cell);
+  };
   const LIFT = 20;
   const cloth = shade(spec.cloth || '#4a4038', LIFT);
   const metal = shade(spec.metal || '#6e6a63', LIFT);
-  const dark = shade(cloth, -26);
+  const clothD = shade(cloth, -26), clothL = shade(cloth, 24);
+  const metalD = shade(metal, -30), metalL = shade(metal, 14);
 
-  if (spec.beast) return drawBeast(g, w, h, spec, pose);
+  if (spec.beast) return drawBeast(g, spec, pose);
 
-  const bodyH = 34 * tall;
-  const shoulderW = 22 * bulk;
-  const waistW = 14 * bulk;
-  const topY = ground - bodyH;
+  const bulk = spec.bulk || 1;
+  const wide = bulk > 1.15 ? 1 : bulk < 1.0 ? -1 : 0;  // -1 lean, 0 standard, +1 broad
+  const cx = 13;                       // centre column
+  const G = 29;                        // ground row (feet bottom)
+  const step = pose === 'walkA' ? 1 : pose === 'walkB' ? -1 : 0;
 
-  // legs, with boots a shade darker so the figure has feet on the floor.
-  // Walk frames scissor them apart/together; two frames is enough for a march.
-  const step = pose === 'walkA' ? 2 : pose === 'walkB' ? -2 : 0;
-  g.fillStyle = shade(cloth, -34);
-  g.fillRect(cx - 6.5 * bulk - step, ground - 13, 5.5 * bulk, 13);
-  g.fillRect(cx + 1 * bulk + step, ground - 13, 5.5 * bulk, 13);
-  g.fillStyle = '#191410';
-  g.fillRect(cx - 7 * bulk - step, ground - 3.5, 6.5 * bulk, 3.5);
-  g.fillRect(cx + 0.8 * bulk + step, ground - 3.5, 6.5 * bulk, 3.5);
+  // ---- legs + boots (scissor on walk frames)
+  P(cx - 3 - step, G - 4, 2, 4, clothD);
+  P(cx + 1 + step, G - 4, 2, 4, clothD);
+  P(cx - 3 - step, G - 1, 2, 1, '#191410');
+  P(cx + 1 + step, G - 1, 2, 1, '#191410');
 
-  // weapon behind the body
-  if (spec.weapon === 'pole' || spec.weapon === 'maul' || spec.weapon === 'staff') {
-    drawWeapon(g, cx, ground, spec, true);
+  // ---- weapon behind the body
+  drawWeapon(P, cx, G, spec, metal, metalL, true);
+
+  // ---- torso rows 14..24: shoulders taper to waist
+  const shW = 4 + wide;                // half-width at shoulders
+  const waW = 3;                       // half-width at waist
+  for (let r = 0; r < 11; r++) {
+    const hw = Math.round(shW + (waW - shW) * (r / 10));
+    P(cx - hw, 14 + r, hw * 2, 1, cloth);
   }
-
-  // torso: wide shoulders down to a narrow waist
-  g.beginPath();
-  g.moveTo(cx - shoulderW / 2, topY + 4);
-  g.lineTo(cx + shoulderW / 2, topY + 4);
-  g.lineTo(cx + waistW / 2, ground - 10);
-  g.lineTo(cx - waistW / 2, ground - 10);
-  g.closePath();
-  g.fillStyle = cloth;
-  g.fill();
-
-  // tabard / surcoat stripe -- the only saturated colour on the figure
+  // lit left edge + shaded right edge
+  for (let r = 0; r < 11; r++) {
+    const hw = Math.round(shW + (waW - shW) * (r / 10));
+    P(cx - hw, 14 + r, 1, 1, clothL);
+    P(cx + hw - 1, 14 + r, 1, 1, clothD);
+  }
+  // tabard
   if (spec.tabard) {
-    g.fillStyle = spec.tabard;
-    g.fillRect(cx - 4 * bulk, topY + 6, 8 * bulk, bodyH - 20);
+    P(cx - 1, 15, 2, 8, spec.tabard);
+    P(cx - 1, 22, 2, 1, shade(spec.tabard, -30));
   }
+  // belt + buckle
+  P(cx - waW - 1, 22, waW * 2 + 2, 1, '#171310');
+  P(cx - 1, 22, 2, 1, metalD);
 
-  // lit edge, top-left
-  g.beginPath();
-  g.moveTo(cx - shoulderW / 2, topY + 4);
-  g.lineTo(cx - shoulderW / 2 + 4, topY + 4);
-  g.lineTo(cx - waistW / 2 + 3, ground - 10);
-  g.lineTo(cx - waistW / 2, ground - 10);
-  g.closePath();
-  g.fillStyle = shade(cloth, 22);
-  g.fill();
-
-  // belt -- one dark horizontal break stops the torso reading as a slab
-  g.fillStyle = '#171310';
-  g.fillRect(cx - waistW / 2 - 1.5, ground - 17, waistW + 3, 3);
-  g.fillStyle = shade(metal, -6);
-  g.fillRect(cx - 2, ground - 17, 4, 3);
-
-  // Pauldrons: DARKER than the cloth, not lighter. Lit metal at the shoulders
-  // out-shouts the whole figure and the silhouette reads as a pale blob.
-  g.fillStyle = shade(metal, -30);
-  g.beginPath();
-  g.ellipse(cx - shoulderW / 2 + 1, topY + 6, 4.8 * bulk, 3.8, 0, 0, Math.PI * 2);
-  g.fill();
-  g.beginPath();
-  g.ellipse(cx + shoulderW / 2 - 1, topY + 6, 4.8 * bulk, 3.8, 0, 0, Math.PI * 2);
-  g.fill();
-  g.fillStyle = shade(metal, 8);
-  g.beginPath();
-  g.ellipse(cx - shoulderW / 2 + 0.5, topY + 4.6, 3.4 * bulk, 1.5, 0, 0, Math.PI * 2);
-  g.fill();
-
-  // rim light down the left edge -- without it a dark figure on a dark floor
-  // has no silhouette at all
-  g.save();
-  g.strokeStyle = 'rgba(255,214,170,0.30)';
-  g.lineWidth = 1.6;
-  g.beginPath();
-  g.moveTo(cx - shoulderW / 2 + 0.8, topY + 5);
-  g.lineTo(cx - waistW / 2 + 0.8, ground - 10);
-  g.stroke();
-  g.restore();
-
-  // head + helm, deliberately small against the torso
-  const headR = 7.2;
-  const headY = topY - headR + 3;
-  g.fillStyle = shade(metal, -18);
-  if (spec.helm === 'conical') {
-    g.beginPath();
-    g.moveTo(cx, headY - headR - 4);
-    g.lineTo(cx + headR, headY + headR - 1);
-    g.lineTo(cx - headR, headY + headR - 1);
-    g.closePath(); g.fill();
-  } else if (spec.helm === 'bucket') {
-    g.fillRect(cx - headR, headY - headR, headR * 2, headR * 2 + 1);
-  } else if (spec.helm === 'hood') {
-    g.beginPath();
-    g.moveTo(cx - headR - 1, headY + headR);
-    g.quadraticCurveTo(cx, headY - headR - 5, cx + headR + 1, headY + headR);
-    g.closePath();
-    g.fillStyle = dark; g.fill();
+  // ---- arms: weapon arm reaches the grip, off arm hangs
+  const armC = shade(cloth, -10);
+  if (spec.weapon === 'shield') {
+    P(cx - shW - 2, 15, 2, 5, armC);              // left arm to shield
+    P(cx + shW, 15, 2, 4, armC);                  // right hangs
+  } else if (spec.weapon === 'knife') {
+    P(cx - shW - 1, 15, 2, 4, armC);
+    P(cx + shW - 1, 15, 2, 4, armC);
+  } else if (spec.weapon === 'bow') {
+    P(cx + shW - 1, 15, 3, 2, armC);              // drawn across
+    P(cx - shW - 1, 16, 2, 3, armC);
   } else {
-    g.beginPath(); g.arc(cx, headY, headR, 0, Math.PI * 2); g.fill();
+    P(cx + shW - 1, 15, 2, 5, armC);              // weapon arm
+    P(cx - shW, 16, 1, 4, armC);                  // off arm
   }
-  // plume: a crest of feathers off the helm crown, if the captain wears one
+
+  // ---- pauldrons (darker than cloth -- lit metal makes a pale blob)
+  P(cx - shW - 1, 14, 3, 2, metalD);
+  P(cx + shW - 2, 14, 3, 2, metalD);
+  P(cx - shW - 1, 14, 1, 1, metalL);
+
+  // ---- head rows 8..13 + helm
+  const hd = shade(metal, -18);
+  if (spec.helm === 'conical') {
+    P(cx - 1, 6, 2, 1, hd);
+    P(cx - 2, 7, 4, 2, hd);
+    P(cx - 3, 9, 6, 4, hd);
+    P(cx - 3, 9, 1, 3, metalL);
+    P(cx - 1, 5, 1, 1, metalL);                    // tip glint
+  } else if (spec.helm === 'bucket') {
+    P(cx - 3, 7, 6, 6, hd);
+    P(cx - 3, 7, 6, 1, metalL);
+    P(cx - 3, 7, 1, 6, shade(hd, 12));
+  } else if (spec.helm === 'hood') {
+    P(cx - 2, 7, 4, 1, clothD);
+    P(cx - 3, 8, 6, 5, clothD);
+    P(cx - 3, 8, 1, 4, shade(clothD, 16));
+    P(cx - 2, 10, 4, 2, '#0d0b0a');                // face in shadow
+  } else { // kettle
+    P(cx - 2, 7, 4, 3, hd);
+    P(cx - 4, 10, 8, 1, hd);                       // brim
+    P(cx - 2, 7, 4, 1, metalL);
+    P(cx - 2, 11, 4, 2, shade(cloth, -14));        // face/coif
+  }
+  // visor slit
+  if (spec.helm === 'conical' || spec.helm === 'bucket') P(cx - 2, 10, 4, 1, '#0d0b0a');
+
+  // ---- plume
   if (spec.plume) {
-    g.fillStyle = spec.plume;
-    const ptop = headY - headR - (spec.helm === 'conical' ? 6 : 2);
-    g.beginPath();
-    g.moveTo(cx + 1, ptop + 2);
-    g.quadraticCurveTo(cx + 7, ptop - 9, cx + 12, ptop - 4);
-    g.quadraticCurveTo(cx + 9, ptop - 1, cx + 6, ptop + 2);
-    g.closePath(); g.fill();
-    g.beginPath();
-    g.moveTo(cx, ptop + 2);
-    g.quadraticCurveTo(cx + 5, ptop - 12, cx + 10, ptop - 8);
-    g.quadraticCurveTo(cx + 7, ptop - 3, cx + 4, ptop + 1);
-    g.closePath(); g.fill();
-    g.fillStyle = shade(spec.plume, -28);
-    g.fillRect(cx - 1, ptop, 3, 4);
+    const pj = spec.helm === 'conical' ? 4 : 6;
+    P(cx, pj, 1, 2, spec.plume);
+    P(cx + 1, pj - 1, 2, 2, spec.plume);
+    P(cx + 3, pj - 2, 1, 2, shade(spec.plume, -20));
   }
 
-  // visor: a black slit is what makes it read as a helm and not a face
-  g.fillStyle = '#0d0b0a';
-  g.fillRect(cx - headR + 1.5, headY - 0.5, headR * 2 - 3, 2.6);
-
-  if (spec.weapon !== 'pole' && spec.weapon !== 'maul' && spec.weapon !== 'staff') {
-    drawWeapon(g, cx, ground, spec, false);
-  }
+  // ---- weapon in front
+  drawWeapon(P, cx, G, spec, metal, metalL, false);
 }
 
-function drawWeapon(g, cx, ground, spec, behind) {
-  const metal = shade(spec.metal || '#6e6a63', 16);
-  const wood = '#3b2f26';
+function drawWeapon(P, cx, G, spec, metal, metalL, behindPass) {
+  const wood = '#4a3826', woodL = '#63492e';
+  const behind = spec.weapon === 'pole' || spec.weapon === 'maul' || spec.weapon === 'staff';
+  if (behind !== behindPass) return;
   switch (spec.weapon) {
     case 'sword':
-      g.fillStyle = wood; g.fillRect(cx + 12, ground - 26, 3, 8);
-      g.fillStyle = shade(metal, 26);
-      g.beginPath();
-      g.moveTo(cx + 13.5, ground - 26);
-      g.lineTo(cx + 16, ground - 52);
-      g.lineTo(cx + 11, ground - 52);
-      g.closePath(); g.fill();
-      g.fillStyle = metal; g.fillRect(cx + 8, ground - 28, 11, 2.5);
+      P(cx + 5, 20, 1, 3, wood);                    // grip
+      P(cx + 3, 19, 5, 1, metal);                   // guard
+      P(cx + 5, 9, 1, 10, metalL);                  // blade
+      P(cx + 5, 8, 1, 1, '#f2ead2');                // point glint
       break;
     case 'shield':
-      g.fillStyle = shade(metal, -14);
-      g.beginPath();
-      g.moveTo(cx - 22, ground - 44);
-      g.lineTo(cx - 4, ground - 44);
-      g.lineTo(cx - 4, ground - 12);
-      g.lineTo(cx - 13, ground - 4);
-      g.lineTo(cx - 22, ground - 12);
-      g.closePath(); g.fill();
-      g.strokeStyle = shade(metal, 26); g.lineWidth = 1.5; g.stroke();
-      g.fillStyle = '#2a1f1c';
-      g.fillRect(cx - 17, ground - 34, 3, 3);
-      g.fillRect(cx - 12, ground - 27, 3, 3);
+      P(cx - 10, 13, 5, 9, shade(metal, -12));
+      P(cx - 10, 13, 5, 1, metalL);
+      P(cx - 10, 13, 1, 9, shade(metal, 4));
+      P(cx - 9, 22, 3, 1, shade(metal, -24));       // bottom taper
+      P(cx - 8, 16, 1, 1, '#2a1f1c');               // bolts
+      P(cx - 7, 19, 1, 1, '#2a1f1c');
       break;
-    case 'bow': {
-      g.strokeStyle = wood; g.lineWidth = 3;
-      g.beginPath();
-      g.moveTo(cx + 6, ground - 42); g.lineTo(cx + 6, ground - 24);
-      g.stroke();
-      g.strokeStyle = shade(metal, 10); g.lineWidth = 2.5;
-      g.beginPath();
-      g.moveTo(cx - 2, ground - 36); g.lineTo(cx + 16, ground - 36);
-      g.stroke();
-      g.strokeStyle = '#171310'; g.lineWidth = 1;
-      g.beginPath(); g.moveTo(cx - 2, ground - 36); g.lineTo(cx + 6, ground - 33);
-      g.lineTo(cx + 16, ground - 36); g.stroke();
+    case 'bow':
+      P(cx + 7, 12, 1, 9, wood);
+      P(cx + 6, 11, 1, 1, wood); P(cx + 6, 21, 1, 1, wood);
+      P(cx + 6, 12, 1, 9, '#c9bfa8');               // string
+      P(cx + 4, 16, 4, 1, woodL);                   // nocked bolt
       break;
-    }
     case 'pole':
-      g.fillStyle = wood; g.fillRect(cx + 11, ground - 58, 3, 54);
-      g.fillStyle = shade(metal, 22);
-      g.beginPath();
-      g.moveTo(cx + 12.5, ground - 66);
-      g.lineTo(cx + 18, ground - 52);
-      g.lineTo(cx + 7, ground - 54);
-      g.closePath(); g.fill();
+      P(cx + 4, 4, 1, 21, wood);
+      P(cx + 3, 3, 3, 3, metalL);                   // head
+      P(cx + 3, 6, 2, 1, metal);                    // hook
       break;
     case 'maul':
-      g.fillStyle = wood; g.fillRect(cx + 12, ground - 50, 4, 44);
-      g.fillStyle = shade(metal, -8);
-      g.fillRect(cx + 5, ground - 58, 18, 11);
-      g.fillStyle = shade(metal, 20);
-      g.fillRect(cx + 5, ground - 58, 18, 3);
+      P(cx + 4, 7, 1, 17, wood);
+      P(cx + 2, 4, 5, 4, shade(metal, -8));
+      P(cx + 2, 4, 5, 1, metalL);
       break;
     case 'pick':
-      g.fillStyle = wood; g.fillRect(cx + 11, ground - 44, 3, 38);
-      g.strokeStyle = shade(metal, 12); g.lineWidth = 3;
-      g.beginPath();
-      g.moveTo(cx + 3, ground - 46); g.quadraticCurveTo(cx + 12, ground - 52, cx + 20, ground - 42);
-      g.stroke();
+      P(cx + 5, 9, 1, 13, wood);
+      P(cx + 2, 8, 7, 1, metalL);
+      P(cx + 2, 9, 1, 2, metal); P(cx + 8, 9, 1, 2, metal);
       break;
     case 'knife':
-      g.fillStyle = shade(metal, 30);
-      g.beginPath();
-      g.moveTo(cx + 10, ground - 24); g.lineTo(cx + 17, ground - 36);
-      g.lineTo(cx + 13, ground - 22); g.closePath(); g.fill();
-      g.fillStyle = shade(metal, 30);
-      g.beginPath();
-      g.moveTo(cx - 10, ground - 24); g.lineTo(cx - 17, ground - 36);
-      g.lineTo(cx - 13, ground - 22); g.closePath(); g.fill();
+      P(cx + 5, 15, 1, 4, '#e8e0cc');
+      P(cx - 6, 15, 1, 4, '#e8e0cc');
+      P(cx + 5, 19, 1, 1, wood); P(cx - 6, 19, 1, 1, wood);
       break;
     case 'staff':
-      g.fillStyle = wood; g.fillRect(cx + 12, ground - 62, 3, 58);
-      g.strokeStyle = '#8a3a2a'; g.lineWidth = 2;
-      g.beginPath(); g.arc(cx + 13.5, ground - 64, 5, 0, Math.PI * 2); g.stroke();
+      P(cx + 5, 4, 1, 21, wood);
+      P(cx + 4, 2, 3, 3, '#a8452a');                // ember orb
+      P(cx + 5, 3, 1, 1, '#ffb06a');
       break;
     case 'bell':
-      g.fillStyle = shade('#9b8455', 10);
-      g.beginPath();
-      g.moveTo(cx + 8, ground - 52);
-      g.lineTo(cx + 22, ground - 52);
-      g.lineTo(cx + 25, ground - 36);
-      g.lineTo(cx + 5, ground - 36);
-      g.closePath(); g.fill();
-      g.fillStyle = '#2a2018'; g.fillRect(cx + 13, ground - 36, 4, 5);
+      P(cx + 4, 8, 4, 1, '#8a6f3a');
+      P(cx + 4, 9, 4, 3, '#b09048');
+      P(cx + 5, 12, 2, 1, '#6a531f');
       break;
     case 'satchel':
-      g.fillStyle = '#4a3a28';
-      g.fillRect(cx + 9, ground - 24, 12, 10);
-      g.fillStyle = '#2a2018'; g.fillRect(cx + 9, ground - 20, 12, 2);
-      g.fillStyle = '#7a2a20';
-      g.beginPath(); g.arc(cx + 15, ground - 28, 3.5, 0, Math.PI * 2); g.fill();
+      P(cx + 4, 19, 4, 3, '#5a462e');
+      P(cx + 4, 20, 4, 1, '#3a2c1a');
+      P(cx + 5, 17, 1, 2, '#8a2a20');               // vial
       break;
   }
 }
 
-function drawBeast(g, w, h, spec, pose) {
-  const bstep = pose === 'walkA' ? 2 : pose === 'walkB' ? -2 : 0;
-  const cx = w / 2, ground = h - 6;
+// low-slung quadruped, all cells
+function drawBeast(g, spec, pose) {
+  const cell = CELL;
+  const P = (x, y, w, h, c) => {
+    g.fillStyle = c;
+    g.fillRect(Math.round(x) * cell, Math.round(y) * cell, Math.round(w) * cell, Math.round(h) * cell);
+  };
   const cloth = shade(spec.cloth || '#6e5a4e', 20);
-  // low, long body -- reads instantly as "not a man" on a top-down grid
-  g.fillStyle = shade(cloth, -30);
-  g.fillRect(cx - 14 - bstep, ground - 12, 4, 12);
-  g.fillRect(cx - 4 + bstep, ground - 11, 4, 11);
-  g.fillRect(cx + 5 - bstep, ground - 12, 4, 12);
-  g.fillRect(cx + 13 + bstep, ground - 11, 4, 11);
-  g.fillStyle = cloth;
-  g.beginPath();
-  g.ellipse(cx, ground - 18, 19, 9, 0, 0, Math.PI * 2);
-  g.fill();
-  g.fillStyle = shade(cloth, 18);
-  g.beginPath();
-  g.ellipse(cx - 4, ground - 21, 12, 4.5, 0, 0, Math.PI * 2);
-  g.fill();
+  const dark = shade(cloth, -28), lit = shade(cloth, 18);
+  const G = 29, cx = 13;
+  const step = pose === 'walkA' ? 1 : pose === 'walkB' ? -1 : 0;
+  // legs
+  P(cx - 6 - step, G - 4, 2, 4, dark);
+  P(cx - 1 + step, G - 4, 2, 4, dark);
+  P(cx + 3 - step, G - 4, 2, 4, dark);
+  P(cx + 6 + step, G - 4, 2, 4, dark);
+  // body low and long
+  P(cx - 8, G - 9, 16, 5, cloth);
+  P(cx - 8, G - 9, 16, 1, lit);
+  P(cx - 8, G - 5, 16, 1, dark);
   // ribs
-  g.strokeStyle = shade(cloth, -34); g.lineWidth = 1.2;
-  for (let i = -2; i <= 2; i++) {
-    g.beginPath(); g.moveTo(cx + i * 6, ground - 25); g.lineTo(cx + i * 6, ground - 12); g.stroke();
-  }
-  // head slung low and forward
-  g.fillStyle = shade(cloth, -12);
-  g.beginPath();
-  g.ellipse(cx + 20, ground - 16, 8.5, 6, -0.25, 0, Math.PI * 2);
-  g.fill();
-  g.fillStyle = '#0d0b0a';
-  g.fillRect(cx + 20, ground - 18, 8, 2.4);
-  g.fillStyle = '#c8c2b2';
-  for (let i = 0; i < 4; i++) g.fillRect(cx + 22 + i * 2, ground - 14, 1.2, 3);
+  for (let i = 0; i < 4; i++) P(cx - 5 + i * 3, G - 8, 1, 3, dark);
+  // head slung forward
+  P(cx + 8, G - 11, 5, 4, shade(cloth, -10));
+  P(cx + 8, G - 11, 5, 1, lit);
+  P(cx + 10, G - 10, 3, 1, '#0d0b0a');             // eye band
+  P(cx + 11, G - 8, 1, 1, '#d8d2c2');              // teeth
+  P(cx + 13, G - 8, 1, 1, '#d8d2c2');
+  // tail
+  P(cx - 10, G - 8, 2, 1, dark);
 }
 
 // ------------------------------------------------------------------- specs
@@ -328,38 +265,24 @@ export const FIGURES = {
   undermaster: { cloth: '#4a2d36', metal: '#7a3a4b', helm: 'hood', weapon: 'pole', bulk: 1.6, tall: 1.35, tabard: '#5a1f2a' },
 };
 
-// Figures were drawn for a smaller tile and read as dark specks on a 52px
-// board. Everything is baked through one scale factor rather than by
-// re-tuning thirty hand-placed coordinates.
-const FIGSCALE = 1.34;
-
-// `custom` lets the player's captain override cloth/tabard/helm/weapon. The
-// cache key has to include it or every captain shares the first one baked.
-// `frame` selects idle/walkA/walkB. Every sprite is baked with a dark OUTLINE:
-// the single cheapest thing separating "canvas rects" from "a game sprite".
-export function unitSprite(defId, custom, frame) {
-  const base = FIGURES[defId] || FIGURES.starveling;
-  const spec = custom ? Object.assign({}, base, custom) : base;
-  const pose = frame || 'idle';
-  const key = 'u:' + defId + ':' + FIGSCALE + ':' + pose + ':' +
-    (custom ? [custom.cloth, custom.tabard, custom.helm, custom.weapon, custom.metal, custom.plume, custom.bulk].join('|') : '-');
-  const big = (spec.bulk || 1) > 1.3;
-  const w = big ? 92 : 68, h = big ? 108 : 84;
-  return bake(key, Math.round(w * FIGSCALE) + 4, Math.round(h * FIGSCALE) + 4, (g, W, H) => {
+// sprites for a SPEC (the creator's live look) or a def id; both share bakes
+function spriteForSpec(spec, pose, keyBase) {
+  const key = 'u:' + keyBase + ':' + pose;
+  const cell = (spec.bulk || 1) > 1.3 ? 5 : CELL;
+  const W = FIG_W * cell + 4, H = FIG_H * cell + 4;
+  return bake(key, W, H, (g, W2, H2) => {
     const tmp = document.createElement('canvas');
-    tmp.width = W; tmp.height = H;
+    tmp.width = W2; tmp.height = H2;
     const tg = tmp.getContext('2d');
     tg.translate(2, 2);
-    tg.scale(FIGSCALE, FIGSCALE);
-    drawFigure(tg, (W - 4) / FIGSCALE, (H - 4) / FIGSCALE, spec, pose);
-    // silhouette pass: the figure's own alpha, filled near-black
+    drawFigure(tg, spec, pose);
     const sil = document.createElement('canvas');
-    sil.width = W; sil.height = H;
+    sil.width = W2; sil.height = H2;
     const sg = sil.getContext('2d');
     sg.drawImage(tmp, 0, 0);
     sg.globalCompositeOperation = 'source-in';
     sg.fillStyle = 'rgba(9,7,6,0.88)';
-    sg.fillRect(0, 0, W, H);
+    sg.fillRect(0, 0, W2, H2);
     for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1]]) {
       g.drawImage(sil, ox, oy);
     }
@@ -367,8 +290,15 @@ export function unitSprite(defId, custom, frame) {
   });
 }
 
+export function unitSprite(defId, custom, frame) {
+  const base = FIGURES[defId] || FIGURES.starveling;
+  const spec = custom ? Object.assign({}, base, custom) : base;
+  const keyBase = defId + ':' +
+    (custom ? [custom.cloth, custom.tabard, custom.helm, custom.weapon, custom.metal, custom.plume, custom.bulk].join('|') : '-');
+  return spriteForSpec(spec, frame || 'idle', keyBase);
+}
+
 // Card portraits: the same figure staged on a lit pedestal of dark air.
-// Returned as a data URL so it can be dropped straight into card innerHTML.
 const portraitCache = new Map();
 export function portraitURL(defId, custom, w = 76, h = 92) {
   const key = 'pu:' + defId + ':' + w + 'x' + h + ':' +
@@ -388,28 +318,24 @@ export function portraitURL(defId, custom, w = 76, h = 92) {
   g.fillStyle = gl;
   g.fillRect(0, 0, w, h);
   const spr = unitSprite(defId, custom, 'idle');
-  // Bust framing: head and torso fill the frame. A full figure at card size
-  // is an unreadable dark speck; a bust reads as a person. The sprite canvas
-  // has empty headroom baked in, so crop the FIGURE band: helm tip sits near
-  // 24% of the canvas, the belt near 72%.
-  const sy = spr.height * 0.20;
-  const srcH = spr.height * 0.54;
-  const srcW = spr.width * 0.72;
+  // Bust framing on the pixel grid: helm top sits near row 6 of 30, the belt
+  // near row 22. Crop that band and scale with smoothing OFF for crisp cells.
+  const sy = spr.height * 0.14;
+  const srcH = spr.height * 0.62;
+  const srcW = spr.width * 0.78;
   const sx = (spr.width - srcW) / 2;
   const s = Math.max((w - 4) / srcW, (h - 4) / srcH);
   const dw = srcW * s, dh = srcH * s;
+  g.imageSmoothingEnabled = false;
   g.drawImage(spr, sx, sy, srcW, srcH, w / 2 - dw / 2, h / 2 - dh / 2 + 2, dw, dh);
   const url = c.toDataURL();
   portraitCache.set(key, url);
   return url;
 }
 
-// Live portrait for the creator -- not cached, it changes on every click.
+// Live portrait for the creator -- staged, swingable, pixel-crisp.
 export function drawPortrait(g, W, H, spec, t, swing) {
   g.clearRect(0, 0, W, H);
-  // The figure is 78px tall as drawn; size it to the box rather than guessing.
-  const s = Math.min(W / 96, (H - 46) / 84);
-  // torch pool on the ground so the figure is standing somewhere, not floating
   const gr = g.createRadialGradient(W / 2, H - 26, 4, W / 2, H - 26, W * 0.46);
   gr.addColorStop(0, 'rgba(212,130,60,0.20)');
   gr.addColorStop(1, 'rgba(212,130,60,0)');
@@ -422,15 +348,16 @@ export function drawPortrait(g, W, H, spec, t, swing) {
   g.ellipse(W / 2, H - 24, 34, 9, 0, 0, Math.PI * 2);
   g.fill();
   g.restore();
-  g.save();
+  const spr = spriteForSpec(spec, 'idle',
+    'live:' + [spec.cloth, spec.tabard, spec.helm, spec.weapon, spec.metal, spec.plume, spec.bulk].join('|'));
   const sw = swing || 0;
   const lungeX = Math.sin(sw * Math.PI) * 14;
-  const tilt = Math.sin(sw * Math.PI) * 0.10;
-  g.translate(W / 2 + lungeX, H - 20);
-  g.rotate(tilt);
-  g.scale(s, s);
-  g.translate(-34, -78);
-  drawFigure(g, 68, 84, spec);
+  const s = Math.min((W - 20) / spr.width, (H - 34) / spr.height) * 1.55;
+  g.save();
+  g.imageSmoothingEnabled = false;
+  g.translate(W / 2 + lungeX, H - 18);
+  g.rotate(Math.sin(sw * Math.PI) * 0.10);
+  g.drawImage(spr, -spr.width * s / 2, -spr.height * s, spr.width * s, spr.height * s);
   g.restore();
 }
 
