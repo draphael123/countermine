@@ -1,7 +1,13 @@
 // COUNTERMINE -- run structure, screens, input, and the balance harness.
-import { CLASSES, ENEMIES, BOSSES, ABILITIES, RELICS, FLOORS, NAMES, DEATH_LINES } from './data.js';
+import {
+  CLASSES, ENEMIES, BOSSES, ABILITIES, RELICS, FLOORS, NAMES, DEATH_LINES,
+  CAPTAIN_BASE, ALLOTMENT, STAT_LINES, SIGNATURES,
+} from './data.js';
 import * as E from './engine.js';
 import * as R from './render.js';
+import { drawPortrait, CUSTOM_OPTIONS, FIGURES } from './art.js';
+import { openCreator, closeCreator, makeCaptain, defaultCaptain, randomCaptain } from './creator.js';
+import { startTutorial, tickTutorial, tutorialActive, endTutorial, hideCoach } from './tutorial.js';
 
 // =========================================================== persistent meta
 const META_KEY = 'countermine_meta_v1';
@@ -11,7 +17,7 @@ const DEFAULT_META = () => ({
   tallies: 0, runs: 0, wins: 0, deepest: 0,
   classes: Object.keys(CLASSES).filter(k => !CLASSES[k].locked),
   relics: RELICS.filter(r => !r.locked).map(r => r.id),
-  seenIntro: false,
+  seenIntro: false, seenTutorial: false, lastCaptain: null,
 });
 const DEFAULT_SETTINGS = () => ({
   threatDefault: true, fastEnemy: false, confirmEnd: true,
@@ -52,17 +58,35 @@ const ctx = cv.getContext('2d');
 cv.width = R.CW; cv.height = R.CH;
 
 // ================================================================== screens
-const SCREENS = ['title', 'mapScreen', 'modal'];
+const SCREENS = ['title', 'mapScreen', 'modal', 'creator'];
+let currentScreen = 'title';
 function showScreen(id) {
+  currentScreen = id;
+  $('mEyebrow').textContent = '';
   $('modal').classList.remove('intro');
   for (const s of SCREENS) $(s).classList.toggle('on', s === id);
   $('battle').classList.toggle('on', id === 'battle');
+  if (id !== 'battle') hideCoach();
+}
+
+// =============================================================== the creator
+function screenCreator() {
+  showScreen('creator');
+  openCreator(
+    (cfg) => {
+      meta.lastCaptain = cfg; saveMeta();
+      newRun(null, makeCaptain(cfg));
+    },
+    goTitle,
+    meta.lastCaptain
+  );
 }
 
 // =============================================================== run set-up
-function newRun(seed) {
+function newRun(seed, captain) {
   const s = seed != null ? seed : (Math.floor(Math.random() * 1e9));
   const rng = E.makeRng(s);
+  const cap = captain || makeCaptain(defaultCaptain());
   run = {
     seed: s, rng, floorIdx: 0, gold: 60, relics: [], party: [], nodeId: null,
     map: null, cleared: 0, fights: 0, kills: 0, losses: 0,
@@ -70,12 +94,19 @@ function newRun(seed) {
   // The Serjeant always comes down. One other volunteers.
   const others = meta.classes.filter(c => c !== 'serjeant');
   const second = rng.pick(others.length ? others : ['pavisier']);
-  run.party.push(mkMember('serjeant', rng));
+  run.captain = cap;
+  run.party.push({ id: uidCounter++, defId: 'captain', name: cap.name, hp: cap.def.hp,
+    maxHp: cap.def.hp, kills: 0, def: cap.def, custom: cap.custom });
   run.party.push(mkMember(second, rng));
   run.map = buildFloorMap(rng, 0);
+  run.tutorial = !meta.seenTutorial;
   meta.runs++; saveMeta();
   openMap();
 }
+
+// The captain has no CLASSES entry: it carries its own def. Every lookup on a
+// PARTY MEMBER must go through this or it throws the moment a captain is shown.
+function classOf(p) { return p.def || CLASSES[p.defId]; }
 
 function mkMember(defId, rng) {
   const c = CLASSES[defId];
@@ -182,7 +213,8 @@ function openMap() {
   $('floorName').textContent = 'FLOOR ' + f.n + ' — ' + f.name;
   $('floorSub').textContent = f.sub;
   $('goldNum').textContent = run.gold;
-  $('partyNum').textContent = run.party.length;
+  $('tallyNum').textContent = meta.tallies;
+  renderRoster();
   const strip = $('relicStrip');
   strip.innerHTML = '';
   for (const rid of run.relics) {
@@ -194,6 +226,32 @@ function openMap() {
     strip.appendChild(d);
   }
   drawMap();
+}
+
+// The party used to exist only as a number on the map screen, so nobody could
+// see who they had or how hurt they were between fights.
+function renderRoster() {
+  const box = $('roster');
+  box.innerHTML = '';
+  for (const p of run.party) {
+    const c = classOf(p);
+    const d = document.createElement('div');
+    d.className = 'rosterCard';
+    const frac = Math.max(0, p.hp / p.maxHp);
+    d.innerHTML = '<div class="nm">' + p.name + '</div>'
+      + '<div class="cls">' + c.name + (p.defId === 'captain' ? ' · you' : '') + '</div>'
+      + '<div class="hpbar' + (frac <= .34 ? ' low' : '') + '"><i style="width:' + (frac*100) + '%"></i></div>'
+      + '<div class="mono" style="font-size:10.5px;color:var(--ink-far);margin-top:4px">'
+      + p.hp + '/' + p.maxHp + ' hp · ' + c.armor + ' arm · ' + c.mov + ' mv</div>';
+    d.title = c.abilities.map(a => ABILITIES[a].name + ' — ' + ABILITIES[a].desc).join('\n');
+    box.appendChild(d);
+  }
+  for (let i = run.party.length; i < 4; i++) {
+    const d = document.createElement('div');
+    d.className = 'rosterCard empty';
+    d.textContent = 'empty billet';
+    box.appendChild(d);
+  }
 }
 
 function drawMap() {
@@ -296,11 +354,15 @@ function rollEnemies(rng, floor, kind, partySize) {
 function startBattle(node) {
   const floor = FLOORS[run.floorIdx];
   const kind = node.type === 'boss' ? 'boss' : node.type === 'elite' ? 'elite' : 'fight';
+  const tutorialFight = run.tutorial && run.fights === 0 && kind === 'fight';
   st = E.newBattle({
     seed: run.rng.int(1, 1e9),
     floor, kind,
-    party: run.party.map(p => ({ defId: p.defId, name: p.name, hp: p.hp, id: p.id })),
-    enemies: rollEnemies(run.rng, floor, kind, run.party.length),
+    party: run.party.map(p => ({
+      defId: p.defId, name: p.name, hp: p.hp, id: p.id,
+      def: p.def, custom: p.custom, maxHp: p.maxHp,
+    })),
+    enemies: tutorialFight ? ['starveling', 'starveling'] : rollEnemies(run.rng, floor, kind, run.party.length),
     relics: run.relics,
   });
   st.difficulty = settings.difficulty;
@@ -313,6 +375,15 @@ function startBattle(node) {
   banner(kind === 'boss' ? floor.name : NODE_ART[node.type].label.toUpperCase(), 1100);
   E.logLine(st, 'Place the company, then begin.');
   syncUI();
+  if (tutorialFight) {
+    // Mark it seen the moment it STARTS. Marking it on completion means anyone
+    // who dies or quits mid-lesson gets the whole thing again next run.
+    meta.seenTutorial = true; saveMeta();
+    startTutorial(
+      { state: () => st, view: () => view, screen: () => currentScreen },
+      (completed) => { if (completed) banner('THE DIG BEGINS', 1400); }
+    );
+  }
 }
 
 function banner(text, ms) {
@@ -566,7 +637,7 @@ function syncUI() {
     : st.phase === 'player' ? 'Round ' + st.round + ' · your move'
       : st.phase === 'enemy' ? 'Round ' + st.round + ' · they move' : '';
   $('phaseTag').style.color = st.phase === 'enemy' ? '#b8483a' : '#8b8072';
-  $('endBtn').textContent = st.phase === 'deploy' ? 'Begin [Space]' : 'End Turn [Space]';
+  $('endBtn').textContent = st.phase === 'deploy' ? 'Begin' : 'End Turn';
   $('endBtn').disabled = st.phase === 'enemy';
   $('threatBtn').style.borderColor = view.threat ? '#c2703a' : '';
 }
@@ -635,33 +706,46 @@ function endBattle() {
 function screenAftermath(gold, dead) {
   showScreen('modal');
   const isBoss = pendingNode.type === 'boss';
+  const full = run.party.length >= 4;
+  $('mEyebrow').textContent = full
+    ? 'Recruit — the company is full at four'
+    : 'Recruit — ' + (4 - run.party.length) + ' billet' + (4 - run.party.length === 1 ? '' : 's') + ' open';
   $('mTitle').textContent = isBoss ? 'THE WAY DOWN IS OPEN' : 'THE GROUND IS YOURS';
-  let lede = '+' + gold + ' gold from the bodies.';
-  if (dead.length) lede += '  ' + dead.map(d => d.name + ' ' + run.rng.pick(DEATH_LINES)).join('  ');
-  $('mLede').textContent = lede;
+
+  let lede = 'Three of them are still standing and willing. <b>Click one to bring them along</b>'
+    + (full ? ', and choose who you leave behind.' : '.')
+    + ' You took <span class="good mono">' + gold + '</span> gold off the bodies.';
+  if (dead.length) {
+    lede += '<br><span class="warn">' + dead.map(d => d.name + ' ' + run.rng.pick(DEATH_LINES)).join(' ') + '</span>';
+  }
+  $('mLede').innerHTML = lede;
 
   // survivors offering to join
-  const pool = meta.classes.slice();
+  const shuffled = run.rng.shuffle(meta.classes.slice());
   const offers = [];
-  const shuffled = run.rng.shuffle(pool);
   for (let i = 0; i < 3; i++) {
     const defId = shuffled[i % shuffled.length];
     const c = CLASSES[defId];
-    const hp = Math.max(4, Math.round(c.hp * (run.rng.int(55, 100) / 100)));
-    offers.push({ defId, name: run.rng.pick(NAMES), hp });
+    offers.push({
+      defId, name: run.rng.pick(NAMES),
+      hp: Math.max(4, Math.round(c.hp * (run.rng.int(55, 100) / 100))),
+    });
   }
+
   const box = $('mChoices');
   box.innerHTML = '';
-  const full = run.party.length >= 4;
   for (const o of offers) {
     const c = CLASSES[o.defId];
+    const have = run.party.some(p => p.defId === o.defId);
     const d = document.createElement('div');
     d.className = 'choice';
     d.innerHTML =
-      '<h3>' + o.name + '</h3><div class="role">' + c.name + ' · ' + c.role + '</div>' +
-      '<div class="stats mono">' + o.hp + '/' + c.hp + ' hp · ' + c.armor + ' armour · ' + c.mov + ' move · hits ' + c.atk[0] + '–' + c.atk[1] + ' at range ' + c.range + '</div>' +
+      '<h3>' + o.name + '</h3>' +
+      '<div class="role">' + c.name + ' · ' + c.role + (have ? ' · already have one' : '') + '</div>' +
+      '<div class="stats mono">' + o.hp + '/' + c.hp + ' hp · ' + c.armor + ' armour · ' + c.mov + ' move'
+      + '<br>hits ' + c.atk[0] + '–' + c.atk[1] + ' at range ' + (c.minRange > 1 ? c.minRange + '–' : '') + c.range + '</div>' +
       c.abilities.map(a => '<div class="abLine"><b>' + ABILITIES[a].name + '</b> — ' + ABILITIES[a].desc + '</div>').join('') +
-      '<div class="blurb" style="margin-top:9px">' + c.blurb + '</div>';
+      '<div class="blurb" style="margin-top:10px">' + c.blurb + '</div>';
     d.addEventListener('click', () => {
       if (full) { chooseWhoToLeave(o); return; }
       run.party.push({ id: uidCounter++, defId: o.defId, name: o.name, hp: o.hp, maxHp: c.hp, kills: 0 });
@@ -669,29 +753,31 @@ function screenAftermath(gold, dead) {
     });
     box.appendChild(d);
   }
+
   const foot = $('mFoot');
   foot.innerHTML = '';
   const skip = document.createElement('button');
-  skip.textContent = 'Leave them where they are (+40 gold)';
-  skip.addEventListener('click', () => {
-    run.gold += 40;
-    advanceFrom(pendingNode);
-  });
+  skip.textContent = 'Leave all three (+40 gold)';
+  skip.addEventListener('click', () => { run.gold += 40; advanceFrom(pendingNode); });
   foot.appendChild(skip);
   const hint = document.createElement('div');
   hint.className = 'hint';
-  hint.textContent = full ? 'The company is full at four. Taking one means leaving one.' : 'Room for ' + (4 - run.party.length) + ' more.';
+  hint.innerHTML = full
+    ? 'Whoever you leave here does not follow, and does not survive. Gold is the safe answer.'
+    : 'Recruits arrive wounded and stay wounded until a camp or the quartermaster. '
+      + 'Nobody heals between fights on their own.';
   foot.appendChild(hint);
 }
 
 function chooseWhoToLeave(offer) {
   const c = CLASSES[offer.defId];
+  $('mEyebrow').textContent = 'Recruit — the company is full';
   $('mTitle').textContent = 'SOMEONE HAS TO STAY';
   $('mLede').textContent = 'Four is all the rations stretch to. Who do you leave in the dark?';
   const box = $('mChoices');
   box.innerHTML = '';
   for (const p of run.party) {
-    const pc = CLASSES[p.defId];
+    const pc = classOf(p);
     const d = document.createElement('div');
     d.className = 'choice';
     d.innerHTML = '<h3>' + p.name + '</h3><div class="role">' + pc.name + '</div>' +
@@ -715,6 +801,7 @@ function chooseWhoToLeave(offer) {
 // ================================================================== camps
 function screenCamp() {
   showScreen('modal');
+  $('mEyebrow').textContent = 'Rest — one choice only';
   $('mTitle').textContent = 'A CAMP';
   $('mLede').textContent = 'Someone kept a fire going here. Sit down. Not for long.';
   const box = $('mChoices');
@@ -732,11 +819,12 @@ function screenCamp() {
     advanceFrom(pendingNode);
   });
   opt('Drill', 'One soldier, +6 maximum health', 'Permanent for the rest of the dig. Pick the one who keeps surviving.', () => {
-    $('mTitle').textContent = 'WHO DRILLS';
+    $('mEyebrow').textContent = 'Rest — pick a soldier';
+  $('mTitle').textContent = 'WHO DRILLS';
     $('mLede').textContent = '';
     box.innerHTML = '';
     for (const p of run.party) {
-      const pc = CLASSES[p.defId];
+      const pc = classOf(p);
       const d = document.createElement('div');
       d.className = 'choice';
       d.innerHTML = '<h3>' + p.name + '</h3><div class="role">' + pc.name + '</div><div class="stats mono">' + p.hp + '/' + p.maxHp + ' hp</div>';
@@ -757,6 +845,7 @@ function screenCamp() {
 // ================================================================== spoils
 function screenCache() {
   showScreen('modal');
+  $('mEyebrow').textContent = 'Relic — you carry five at most';
   $('mTitle').textContent = 'SPOIL';
   $('mLede').textContent = 'Someone cached this and never came back for it.';
   const have = new Set(run.relics);
@@ -783,7 +872,8 @@ function screenCache() {
 
 function takeRelic(rid) {
   if (run.relics.length >= 5) {
-    $('mTitle').textContent = 'FIVE IS ALL YOU CAN CARRY';
+    $('mEyebrow').textContent = 'Relic — swap or walk away';
+  $('mTitle').textContent = 'FIVE IS ALL YOU CAN CARRY';
     $('mLede').textContent = 'Something has to go back on the floor.';
     const box = $('mChoices');
     box.innerHTML = '';
@@ -808,6 +898,7 @@ function takeRelic(rid) {
 // ============================================================ quartermaster
 function screenVendor() {
   showScreen('modal');
+  $('mEyebrow').textContent = 'Spend gold — it does not carry between runs';
   $('mTitle').textContent = 'THE QUARTERMASTER';
   $('mLede').textContent = 'Still keeping the books. Still charging.';
   const disc = run.relics.includes('charts') ? 0.8 : 1;
@@ -871,6 +962,7 @@ function runLost(dead) {
   meta.deepest = Math.max(meta.deepest, run.floorIdx + 1);
   saveMeta();
   showScreen('modal');
+  $('mEyebrow').textContent = 'The run is over';
   $('mTitle').textContent = 'THE COMPANY IS GONE';
   $('mLede').textContent = 'Floor ' + (run.floorIdx + 1) + '. ' + run.kills + ' of theirs, ' + run.losses + ' of yours. '
     + 'Somebody will scratch the tally on the wall by the stair.';
@@ -880,7 +972,7 @@ function runLost(dead) {
   $('mFoot').innerHTML = '';
   const again = document.createElement('button');
   again.textContent = 'Send another company';
-  again.addEventListener('click', () => newRun());
+  again.addEventListener('click', screenCreator);
   const muster = document.createElement('button');
   muster.textContent = 'The Muster Roll';
   muster.addEventListener('click', screenMuster);
@@ -895,6 +987,7 @@ function runWon() {
   meta.tallies += banked; meta.wins++; meta.deepest = 3;
   saveMeta();
   showScreen('modal');
+  $('mEyebrow').textContent = 'You got out';
   $('mTitle').textContent = 'THE COUNTERMINE ENDS';
   $('mLede').textContent = 'It ends in a room neither army dug, and the digging stops. '
     + run.party.map(p => p.name).join(', ') + ' walk back up.';
@@ -903,7 +996,7 @@ function runWon() {
   $('mFoot').innerHTML = '';
   const again = document.createElement('button');
   again.textContent = 'Go down again';
-  again.addEventListener('click', () => newRun());
+  again.addEventListener('click', screenCreator);
   const home = document.createElement('button');
   home.textContent = 'The surface';
   home.addEventListener('click', goTitle);
@@ -914,8 +1007,11 @@ function runWon() {
 function screenMuster() {
   showScreen('modal');
   const render = () => {
-    $('mTitle').textContent = 'THE MUSTER ROLL';
-    $('mLede').textContent = 'Tallies: ' + meta.tallies + '. What you buy here is on every company that goes down after this one.';
+    $('mEyebrow').textContent = 'Permanent — spend tallies between runs';
+  $('mTitle').textContent = 'THE MUSTER ROLL';
+    $('mLede').innerHTML = 'You bank <b>tallies</b> every time a company dies down there — they are the only thing that survives a run. '
+      + 'Spending them here adds classes and relics to the <b>pool future runs draw from</b>. It never makes your soldiers stronger directly.'
+      + '<br>You have <span class="tally">' + meta.tallies + '</span> to spend.';
     const box = $('mChoices');
     box.innerHTML = '';
     for (const key of Object.keys(CLASSES)) {
@@ -969,7 +1065,8 @@ function screenMuster() {
 function screenSettings() {
   showScreen('modal');
   const render = () => {
-    $('mTitle').textContent = 'SETTINGS';
+    $('mEyebrow').textContent = '';
+  $('mTitle').textContent = 'SETTINGS';
     $('mLede').textContent = 'Nothing here is judged. Difficulty applies from the next run down.';
     const box = $('mChoices');
     box.innerHTML = '';
@@ -1049,11 +1146,11 @@ function screenIntro(idx) {
   next.textContent = idx < INTRO.length - 1 ? 'Go on' : 'Take the stair';
   next.addEventListener('click', () => {
     if (idx < INTRO.length - 1) screenIntro(idx + 1);
-    else { meta.seenIntro = true; saveMeta(); newRun(); }
+    else { meta.seenIntro = true; saveMeta(); screenCreator(); }
   });
   const skip = document.createElement('button');
   skip.textContent = 'Skip';
-  skip.addEventListener('click', () => { meta.seenIntro = true; saveMeta(); newRun(); });
+  skip.addEventListener('click', () => { meta.seenIntro = true; saveMeta(); screenCreator(); });
   $('mFoot').append(next, skip);
   const dots = document.createElement('div');
   dots.className = 'hint';
@@ -1110,7 +1207,9 @@ function toggleThreat() {
 }
 
 // ================================================================== buttons
-$('btnStart').addEventListener('click', () => { if (meta.seenIntro) newRun(); else screenIntro(0); });
+$('btnStart').addEventListener('click', () => { if (meta.seenIntro) screenCreator(); else screenIntro(0); });
+$('btnSettings').addEventListener('click', screenSettings);
+$('menuBtn').addEventListener('click', screenSettings);
 $('btnMuster').addEventListener('click', screenMuster);
 $('threatBtn').addEventListener('click', toggleThreat);
 $('endBtn').addEventListener('click', () => {
@@ -1125,18 +1224,6 @@ $('btnAbandon').addEventListener('click', () => {
   runLost([]);
 });
 
-// settings button, injected so index.html stays structural
-(function addSettingsButtons() {
-  const t = document.createElement('button');
-  t.textContent = 'Settings';
-  t.addEventListener('click', screenSettings);
-  $('btnMuster').after(t);
-  const b = document.createElement('button');
-  b.textContent = 'Menu';
-  b.style.flex = '0 0 auto';
-  b.addEventListener('click', screenSettings);
-  $('threatBtn').parentElement.prepend(b);
-})();
 
 // The stage is a fixed 1290x620 so the board never reflows mid-battle; scale
 // the whole thing to whatever window it lands in.
@@ -1179,6 +1266,7 @@ function step(dt) {
     setTimeout(endBattle, 700);
   }
   R.draw(ctx, st, view);
+  tickTutorial();
 }
 requestAnimationFrame(frame);
 // Watchdog: a hidden preview panel stops firing rAF entirely, and the canvas
@@ -1203,7 +1291,7 @@ window.CM = {
   get settings() { return settings; },
   newRun, goTitle,
   wipeMeta() { meta = DEFAULT_META(); saveMeta(); goTitle(); },
-  sim, simOne,
+  sim, simOne, makeCaptain, randomCaptain, defaultCaptain,
   // Hooks used to drive the real UI in a test, so a broken screen transition
   // shows up as a failed assertion instead of as a silent dead click.
   dbg: {
@@ -1212,7 +1300,7 @@ window.CM = {
     node: (i) => { const n = run.map.nodes.filter(x => run.map.reachable.includes(x.id)); enterNode(n[i || 0]); },
     nodeTypes: () => run.map.nodes.map(n => n.col + n.type[0]).join(' '),
     reachable: () => run.map.reachable.slice(),
-    screen: () => ['title', 'mapScreen', 'modal', 'battle'].find(s => $(s).classList.contains('on')),
+    screen: () => ['title', 'mapScreen', 'modal', 'creator', 'battle'].find(s => $(s).classList.contains('on')),
     modal: () => ({ title: $('mTitle').textContent, lede: $('mLede').textContent, choices: $('mChoices').children.length }),
     clickChoice: (i) => $('mChoices').children[i].click(),
     clickFoot: (i) => $('mFoot').children[i].click(),

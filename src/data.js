@@ -86,6 +86,40 @@ export const ABILITIES = {
     desc: 'Take an allys wounds onto yourself until your next turn.',
   },
 
+  // ------------------------------------------------ captain signature spells
+  sig_rally: {
+    name: 'Rally', cd: 3, target: 'ally', range: 3, kind: 'buff', status: 'rallied', dur: 2,
+    desc: 'An ally in earshot hits for +3 until your next turn.',
+    long: 'Martial. The safest pick: turn somebody else into the killer this round.',
+  },
+  sig_hold: {
+    name: 'Hold the Line', cd: 3, target: 'self', kind: 'aura_guard', radius: 1, dur: 1,
+    desc: 'You and everyone beside you take 4 less damage this round.',
+    long: 'Martial. Walk into the worst tile on the board on purpose, and survive it.',
+  },
+  sig_hew: {
+    name: 'Hew', cd: 3, target: 'dir', kind: 'cone', dmg: [6, 9],
+    desc: 'A swing down one lane: four tiles, everything standing in them.',
+    long: 'Martial. For when three of them come at you down a corridor.',
+  },
+  sig_ember: {
+    name: 'Emberbrand', cd: 3, target: 'enemy', range: 4, minRange: 1, kind: 'attack',
+    dmg: [6, 9], status: 'burning', dur: 2, val: 3,
+    desc: 'Fire at range 4. Sets the target burning for 3 a turn, twice.',
+    long: 'Arcane. Reach past the front line, and armour does not stop the burning.',
+  },
+  sig_grave: {
+    name: 'Grave-Light', cd: 2, target: 'ally', range: 3, kind: 'heal',
+    amount: [8, 12], charges: 2,
+    desc: 'Close an ally’s wounds at range 3. Twice a battle.',
+    long: 'Arcane. Buys a soldier one more round. Two of them, then it is spent.',
+  },
+  sig_oath: {
+    name: 'Iron Oath', cd: 4, target: 'self', kind: 'oath', dur: 2, guard: 5,
+    desc: 'Take 5 less damage and drag every nearby foe onto you for two rounds.',
+    long: 'Arcane. You become the answer to every question they were about to ask.',
+  },
+
   // --------------------------------------------------------- enemy abilities
   e_smash: {
     name: 'Maul', cd: 3, target: 'windup_area', range: 1, kind: 'windup', radius: 1,
@@ -120,6 +154,29 @@ export const ABILITIES = {
 
 // ------------------------------------------------------------------ classes
 // mov = tiles per turn (orthogonal). atk = base attack damage range.
+// The player's own officer. Stats come from the creator's allotment, and the
+// single signature spell is what makes two captains play differently -- recruits
+// carry two abilities each precisely so the captain is not just "a better one".
+export const CAPTAIN_BASE = {
+  id: 'captain', name: 'Captain', short: 'CPT', role: 'Your officer',
+  hp: 22, mov: 3, armor: 0, range: 1, atk: [5, 7],
+  abilities: ['sig_rally'], locked: false, isCaptain: true,
+  blurb: 'Signed for the company. Nobody made them do it.',
+};
+
+export const ALLOTMENT = 6;
+export const STAT_LINES = [
+  { id: 'vigour', name: 'Vigour', max: 3, per: 4, unit: 'health',
+    text: '+4 maximum health a point. More rounds on your feet.' },
+  { id: 'haste', name: 'Haste', max: 3, per: 1, unit: 'movement',
+    text: '+1 movement a point. Reach the flank on the turn it matters.' },
+  { id: 'plate', name: 'Plate', max: 3, per: 1, unit: 'armour',
+    text: '+1 armour a point, taken off every hit. Useless against bleeding and fire.' },
+  { id: 'might', name: 'Might', max: 3, per: 2, unit: 'damage',
+    text: '+2 damage a point on every attack you make.' },
+];
+export const SIGNATURES = ['sig_rally', 'sig_hold', 'sig_hew', 'sig_ember', 'sig_grave', 'sig_oath'];
+
 export const CLASSES = {
   serjeant: {
     id: 'serjeant', name: 'Serjeant', short: 'SRJ', role: 'Line officer',
@@ -273,21 +330,21 @@ export const RELICS = [
 export const FLOORS = [
   {
     n: 1, name: 'THE BREACH', sub: 'Where the wall came down on both of them.',
-    palette: { floor: '#2b2724', wall: '#645040', accent: '#6a4a2f' },
+    palette: { floor: '#2b2724', wall: '#53433a', accent: '#6a4a2f' },
     pool: ['starveling', 'starveling', 'trencher', 'arbalest', 'hound'],
     elitePool: ['ironhusk', 'bellman'],
     budget: [7, 11], eliteBudget: 13, boss: 'breacher', gold: [45, 70],
   },
   {
     n: 2, name: 'THE SUMP GALLERIES', sub: 'Flooded in the second year. Still garrisoned.',
-    palette: { floor: '#232a2b', wall: '#4d6362', accent: '#3f6360' },
+    palette: { floor: '#232a2b', wall: '#41544f', accent: '#3f6360' },
     pool: ['starveling', 'trencher', 'arbalest', 'hound', 'drowned', 'bellman'],
     elitePool: ['ironhusk', 'drowned', 'arbalest'],
     budget: [12, 17], eliteBudget: 19, boss: 'choirmaster', gold: [60, 90],
   },
   {
     n: 3, name: 'THE COUNTERMINE', sub: 'Neither army dug this one.',
-    palette: { floor: '#2a2226', wall: '#5c4854', accent: '#6b3546' },
+    palette: { floor: '#2a2226', wall: '#4e3c46', accent: '#6b3546' },
     pool: ['trencher', 'arbalest', 'hound', 'drowned', 'bellman', 'ironhusk'],
     elitePool: ['ironhusk', 'ironhusk', 'bellman', 'drowned'],
     budget: [17, 22], eliteBudget: 24, boss: 'undermaster', gold: [80, 120],

@@ -49,6 +49,36 @@ export function draw(ctx, st, view) {
     }
   }
 
+  // ---- wall torches. Deterministic from the tile seed so they never flicker
+  // between frames or move when the board redraws.
+  for (let y = 0; y < GH; y++) {
+    for (let x = 0; x < GW; x++) {
+      const tile = st.grid[y][x];
+      if (tile.t !== T.WALL || tile.rubbleSeed % 7 !== 0) continue;
+      const below = tileAt(st, x, y + 1);
+      if (!below || below.t === T.WALL) continue;
+      const { px, py } = tileToPx(x, y);
+      const fx = px + TILE / 2, fy = py + TILE - 12;
+      const flick = 0.82 + Math.sin(t / 90 + tile.rubbleSeed) * 0.1 + Math.sin(t / 37 + x) * 0.06;
+      const gl = ctx.createRadialGradient(fx, fy, 3, fx, fy, TILE * 2.1 * flick);
+      gl.addColorStop(0, 'rgba(255,176,86,0.30)');
+      gl.addColorStop(0.45, 'rgba(230,130,50,0.10)');
+      gl.addColorStop(1, 'rgba(230,130,50,0)');
+      ctx.fillStyle = gl;
+      ctx.fillRect(px - TILE * 2, py - TILE * 2, TILE * 5, TILE * 5);
+      ctx.fillStyle = '#241a12';
+      ctx.fillRect(fx - 2, fy - 2, 4, 12);
+      ctx.fillStyle = 'rgba(255,190,110,' + (0.75 * flick).toFixed(2) + ')';
+      ctx.beginPath();
+      ctx.ellipse(fx, fy - 5, 3.4 * flick, 6 * flick, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,240,190,' + (0.85 * flick).toFixed(2) + ')';
+      ctx.beginPath();
+      ctx.ellipse(fx, fy - 4, 1.6, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   // ---- deploy zone
   if (st.phase === 'deploy') {
     ctx.save();
@@ -284,7 +314,7 @@ function drawUnit(ctx, st, u, view, t) {
     ctx.restore();
   }
 
-  const spr = unitSprite(u.defId);
+  const spr = unitSprite(u.defId, u.custom);
   ctx.save();
   if (spent) ctx.globalAlpha = 0.45;
   const flash = st.fx.find(f => f.kind === 'hit' && f.x === u.x && f.y === u.y && f.t < 6);
@@ -323,6 +353,7 @@ function drawUnit(ctx, st, u, view, t) {
   if (hasStatus(u, 'pinned')) pips.push('#9a7fd0');
   if (hasStatus(u, 'hasted')) pips.push('#7fd0a0');
   if (hasStatus(u, 'martyred')) pips.push('#d07fa0');
+  if (hasStatus(u, 'taunting')) pips.push('#d4823c');
   pips.forEach((c, i) => {
     ctx.fillStyle = c;
     ctx.fillRect(bx + i * 5, by - 6, 4, 4);

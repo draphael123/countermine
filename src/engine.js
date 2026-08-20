@@ -42,14 +42,15 @@ export function manhattan(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.
 let UID = 1;
 
 export function makeUnit(defId, side, x, y, opts = {}) {
-  const def = side === 'player' ? CLASSES[defId] : (ENEMIES[defId] || BOSSES[defId]);
+  // opts.def lets the player's created captain supply its own stat block.
+  const def = opts.def || (side === 'player' ? CLASSES[defId] : (ENEMIES[defId] || BOSSES[defId]));
   if (!def) throw new Error('unknown unit def: ' + defId);
   const u = {
     uid: UID++, defId, side, def,
     name: opts.name || def.name,
     x, y,
-    maxHp: def.hp + (opts.hpBonus || 0),
-    hp: def.hp + (opts.hpBonus || 0),
+    maxHp: (opts.maxHp || def.hp) + (opts.hpBonus || 0),
+    hp: (opts.maxHp || def.hp) + (opts.hpBonus || 0),
     mov: def.mov,
     armor: def.armor + (opts.armorBonus || 0),
     range: def.range, minRange: def.minRange || 1,
@@ -59,6 +60,7 @@ export function makeUnit(defId, side, x, y, opts = {}) {
     acted: false, moved: false, startX: x, startY: y,
     loaded: !!def.reload, usesLoad: !!def.reload,
     boss: !!def.boss, summoned: !!opts.summoned,
+    custom: opts.custom || null, isCaptain: !!def.isCaptain,
     alive: true, kills: 0, dmgDealt: 0, dmgTaken: 0,
   };
   if (opts.hp != null) u.hp = Math.min(opts.hp, u.maxHp);
@@ -99,7 +101,7 @@ export function newBattle(cfg) {
   cfg.party.forEach((p, i) => {
     const s = ordered[i] || spots[i] || { x: 1, y: 1 + i };
     const u = makeUnit(p.defId, 'player', s.x, s.y, {
-      name: p.name,
+      name: p.name, def: p.def, custom: p.custom, maxHp: p.maxHp,
       hpBonus: (st.relics.has('rations') ? 5 : 0),
       armorBonus: (st.relics.has('scraps') ? 1 : 0),
       charBonus: (st.relics.has('tourniquet') ? 1 : 0),
@@ -668,6 +670,12 @@ export function resolveAbility(st, u, aid, ab, tx, ty, dir) {
       logLine(st, u.name + ' slips through.');
       return { endsTurn: false };
     }
+    case 'oath': {
+      addStatus(u, 'guarded', ab.dur + 1, ab.guard);
+      addStatus(u, 'taunting', ab.dur + 1, 0);
+      logLine(st, u.name + ' swears the iron oath. Everything nearby wants them now.');
+      return;
+    }
     case 'martyr': {
       if (!target) return;
       addStatus(target, 'martyred', ab.dur + 1, 0, { protector: u.uid });
@@ -821,6 +829,10 @@ function aiTakeTurn(st, u) {
       if (avg >= f.hp) score += 400;                      // finish them
       score += (100 - (f.hp / f.maxHp) * 100) * 0.6;      // prefer wounded
       score -= s.cost * 0.5;
+      // Iron Oath has to actually pull aggro or it is a worse Hold the Line.
+      if (hasStatus(f, 'taunting')) score += 260;
+      else if (st.units.some(o => o.alive && o.side === 'player' && hasStatus(o, 'taunting')
+        && Math.abs(o.x - f.x) + Math.abs(o.y - f.y) <= 3)) score -= 220;
       if (u.defId === 'hound') score += (30 - f.maxHp) * 1.5; // hounds want the soft ones
       if (!best || score > best.score) best = { score, s, f };
     }

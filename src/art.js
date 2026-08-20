@@ -39,15 +39,18 @@ function drawFigure(g, w, h, spec) {
 
   if (spec.beast) return drawBeast(g, w, h, spec);
 
-  const bodyH = 30 * tall;
-  const shoulderW = 20 * bulk;
-  const waistW = 13 * bulk;
+  const bodyH = 34 * tall;
+  const shoulderW = 22 * bulk;
+  const waistW = 14 * bulk;
   const topY = ground - bodyH;
 
-  // legs
+  // legs, with boots a shade darker so the figure has feet on the floor
   g.fillStyle = shade(cloth, -34);
-  g.fillRect(cx - 6 * bulk, ground - 12, 5 * bulk, 12);
-  g.fillRect(cx + 1 * bulk, ground - 12, 5 * bulk, 12);
+  g.fillRect(cx - 6.5 * bulk, ground - 13, 5.5 * bulk, 13);
+  g.fillRect(cx + 1 * bulk, ground - 13, 5.5 * bulk, 13);
+  g.fillStyle = '#191410';
+  g.fillRect(cx - 7 * bulk, ground - 3.5, 6.5 * bulk, 3.5);
+  g.fillRect(cx + 0.8 * bulk, ground - 3.5, 6.5 * bulk, 3.5);
 
   // weapon behind the body
   if (spec.weapon === 'pole' || spec.weapon === 'maul' || spec.weapon === 'staff') {
@@ -67,7 +70,7 @@ function drawFigure(g, w, h, spec) {
   // tabard / surcoat stripe -- the only saturated colour on the figure
   if (spec.tabard) {
     g.fillStyle = spec.tabard;
-    g.fillRect(cx - 3.5, topY + 6, 7, bodyH - 16);
+    g.fillRect(cx - 4 * bulk, topY + 6, 8 * bulk, bodyH - 20);
   }
 
   // lit edge, top-left
@@ -80,13 +83,24 @@ function drawFigure(g, w, h, spec) {
   g.fillStyle = shade(cloth, 22);
   g.fill();
 
-  // pauldrons
-  g.fillStyle = metal;
+  // belt -- one dark horizontal break stops the torso reading as a slab
+  g.fillStyle = '#171310';
+  g.fillRect(cx - waistW / 2 - 1.5, ground - 17, waistW + 3, 3);
+  g.fillStyle = shade(metal, -6);
+  g.fillRect(cx - 2, ground - 17, 4, 3);
+
+  // Pauldrons: DARKER than the cloth, not lighter. Lit metal at the shoulders
+  // out-shouts the whole figure and the silhouette reads as a pale blob.
+  g.fillStyle = shade(metal, -30);
   g.beginPath();
-  g.ellipse(cx - shoulderW / 2 + 1, topY + 6, 5 * bulk, 4, 0, 0, Math.PI * 2);
+  g.ellipse(cx - shoulderW / 2 + 1, topY + 6, 4.8 * bulk, 3.8, 0, 0, Math.PI * 2);
   g.fill();
   g.beginPath();
-  g.ellipse(cx + shoulderW / 2 - 1, topY + 6, 5 * bulk, 4, 0, 0, Math.PI * 2);
+  g.ellipse(cx + shoulderW / 2 - 1, topY + 6, 4.8 * bulk, 3.8, 0, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = shade(metal, 8);
+  g.beginPath();
+  g.ellipse(cx - shoulderW / 2 + 0.5, topY + 4.6, 3.4 * bulk, 1.5, 0, 0, Math.PI * 2);
   g.fill();
 
   // rim light down the left edge -- without it a dark figure on a dark floor
@@ -101,7 +115,7 @@ function drawFigure(g, w, h, spec) {
   g.restore();
 
   // head + helm, deliberately small against the torso
-  const headR = 6.2;
+  const headR = 7.2;
   const headY = topY - headR + 3;
   g.fillStyle = shade(metal, -18);
   if (spec.helm === 'conical') {
@@ -131,7 +145,7 @@ function drawFigure(g, w, h, spec) {
 }
 
 function drawWeapon(g, cx, ground, spec, behind) {
-  const metal = spec.metal || '#6e6a63';
+  const metal = shade(spec.metal || '#6e6a63', 16);
   const wood = '#3b2f26';
   switch (spec.weapon) {
     case 'sword':
@@ -265,6 +279,9 @@ function drawBeast(g, w, h, spec) {
 
 // ------------------------------------------------------------------- specs
 export const FIGURES = {
+  // the player's officer -- every field here is overridden by the creator
+  captain: { cloth: '#5a4b3a', metal: '#938c7e', helm: 'conical', weapon: 'sword', tabard: '#8c3a2e', bulk: 1.08, tall: 1.03 },
+
   // players -- warmer cloth, colours of a garrison that has been down here a while
   serjeant: { cloth: '#5a4b3a', metal: '#8a8478', helm: 'conical', weapon: 'sword', tabard: '#8c3a2e', bulk: 1.05 },
   pavisier: { cloth: '#4b4a44', metal: '#8f8b80', helm: 'bucket', weapon: 'shield', bulk: 1.25, tall: 1.02 },
@@ -294,15 +311,65 @@ export const FIGURES = {
 // re-tuning thirty hand-placed coordinates.
 const FIGSCALE = 1.34;
 
-export function unitSprite(defId) {
-  const spec = FIGURES[defId] || FIGURES.starveling;
+// `custom` lets the player's captain override cloth/tabard/helm/weapon. The
+// cache key has to include it or every captain shares the first one baked.
+export function unitSprite(defId, custom) {
+  const base = FIGURES[defId] || FIGURES.starveling;
+  const spec = custom ? Object.assign({}, base, custom) : base;
+  const key = 'u:' + defId + ':' + FIGSCALE + ':' +
+    (custom ? [custom.cloth, custom.tabard, custom.helm, custom.weapon, custom.metal].join('|') : '-');
   const big = (spec.bulk || 1) > 1.3;
   const w = big ? 92 : 68, h = big ? 108 : 84;
-  return bake('u:' + defId + ':' + FIGSCALE, Math.round(w * FIGSCALE), Math.round(h * FIGSCALE), (g, W, H) => {
+  return bake(key, Math.round(w * FIGSCALE), Math.round(h * FIGSCALE), (g, W, H) => {
     g.scale(FIGSCALE, FIGSCALE);
     drawFigure(g, W / FIGSCALE, H / FIGSCALE, spec);
   });
 }
+
+// Live portrait for the creator -- not cached, it changes on every click.
+export function drawPortrait(g, W, H, spec, t) {
+  g.clearRect(0, 0, W, H);
+  // The figure is 78px tall as drawn; size it to the box rather than guessing.
+  const s = Math.min(W / 96, (H - 46) / 84);
+  // torch pool on the ground so the figure is standing somewhere, not floating
+  const gr = g.createRadialGradient(W / 2, H - 26, 4, W / 2, H - 26, W * 0.46);
+  gr.addColorStop(0, 'rgba(212,130,60,0.20)');
+  gr.addColorStop(1, 'rgba(212,130,60,0)');
+  g.fillStyle = gr;
+  g.fillRect(0, 0, W, H);
+  g.save();
+  g.globalAlpha = 0.45;
+  g.fillStyle = '#000';
+  g.beginPath();
+  g.ellipse(W / 2, H - 24, 34, 9, 0, 0, Math.PI * 2);
+  g.fill();
+  g.restore();
+  g.save();
+  g.translate(W / 2, H - 20);
+  g.scale(s, s);
+  g.translate(-34, -78);
+  drawFigure(g, 68, 84, spec);
+  g.restore();
+}
+
+export const CUSTOM_OPTIONS = {
+  helm: [
+    { id: 'conical', label: 'Conical' },
+    { id: 'bucket', label: 'Great helm' },
+    { id: 'round', label: 'Kettle' },
+    { id: 'hood', label: 'Hooded' },
+  ],
+  weapon: [
+    { id: 'sword', label: 'Sword' },
+    { id: 'pole', label: 'Bill' },
+    { id: 'maul', label: 'Maul' },
+    { id: 'shield', label: 'Shield' },
+    { id: 'knife', label: 'Knives' },
+    { id: 'staff', label: 'Staff' },
+  ],
+  cloth: ['#5a4b3a', '#4b4a44', '#3f4a44', '#4a3f4a', '#54463c', '#33302f', '#3d5451', '#5f4d3c'],
+  tabard: ['#8c3a2e', '#7a2a30', '#8a6a20', '#3f6360', '#5a4a7a', '#6b7c4a', '#a8998a', ''],
+};
 
 // ------------------------------------------------------------------- tiles
 // Baked at tile size, high-frequency noise only -- low-frequency blotches make
@@ -340,7 +407,7 @@ export function wallTile(size, colour, seed) {
     }
     // Bevel: blocking terrain has to read as RAISED at a glance, or players
     // path into it and only find out from the move overlay.
-    g.fillStyle = 'rgba(255,232,200,0.16)';
+    g.fillStyle = 'rgba(255,232,200,0.10)';
     g.fillRect(0, 0, W, 3);
     g.fillRect(0, 0, 3, H);
     g.fillStyle = 'rgba(0,0,0,0.45)';
