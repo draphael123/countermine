@@ -27,6 +27,7 @@ const DEFAULT_SETTINGS = () => ({
   fastAnim: false, cbThreat: false, dmgNumbers: true,
   reducedMotion: (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches),
   showForecast: true, screenShake: true, difficulty: 'regular',
+  atmosphere: true, bigText: false, highContrast: false,
 });
 
 let meta = load(META_KEY, DEFAULT_META());
@@ -113,6 +114,20 @@ function screenCreator() {
     goTitle,
     meta.lastCaptain
   );
+}
+
+function duelMode() {
+  const v = settings.duelAnims;
+  if (v === false || v === 'off') return 'off';
+  if (v === 'kills') return 'kills';
+  return 'all';
+}
+
+function duelWanted(f) {
+  const m = duelMode();
+  if (m === 'off' || settings.reducedMotion) return false;
+  if (m === 'kills') return !!(f.kill || (f.a && f.a.boss) || (f.d && f.d.boss));
+  return true;
 }
 
 // =============================================================== run set-up
@@ -381,7 +396,12 @@ function drawMap() {
     const op = n.done ? 0.34 : (can ? 1 : 0.42);
     s += '<g class="mapNode' + (can ? '' : ' dis') + '" data-id="' + n.id + '" opacity="' + op + '">';
     s += '<title>' + art.label + ' — ' + (NODE_TIPS[n.type] || '') + '</title>';
-    if (can) s += '<circle cx="' + x + '" cy="' + y + '" r="30" fill="none" stroke="' + art.colour + '" stroke-width="1" opacity="0.35" filter="url(#nglow)"/>';
+    if (can) {
+      const anim = settings.reducedMotion ? '' :
+        '<animate attributeName="r" values="29;34;29" dur="2.4s" repeatCount="indefinite"/>' +
+        '<animate attributeName="opacity" values="0.45;0.1;0.45" dur="2.4s" repeatCount="indefinite"/>';
+      s += '<circle cx="' + x + '" cy="' + y + '" r="30" fill="none" stroke="' + art.colour + '" stroke-width="1.4" opacity="0.35" filter="url(#nglow)">' + anim + '</circle>';
+    }
     s += '<circle cx="' + x + '" cy="' + y + '" r="26" fill="url(#nbg)" stroke="' + (can ? art.colour : '#3a2f26') + '" stroke-width="' + (can ? 2.5 : 1.5) + '"/>';
     s += '<text x="' + x + '" y="' + (y + 7) + '" text-anchor="middle" font-size="21" fill="' + art.colour + '">' + art.glyph + '</text>';
     if (n.done) {
@@ -1633,6 +1653,7 @@ function screenGlossary(backTo) {
 
 // ================================================================== settings
 function screenSettings() {
+  screenSettings.armAbandon = false;
   showScreen('modal');
   const render = () => {
     $('mEyebrow').textContent = '';
@@ -1776,8 +1797,48 @@ document.addEventListener('pointerdown', () => setVolumes(settings.volMaster, se
       settings.confirmEnd, () => settings.confirmEnd = !settings.confirmEnd);
     card('Auto end turn', 'No dead air', 'When every soldier has acted, the round ends on its own instead of waiting for Space.',
       settings.autoEnd !== false, () => settings.autoEnd = settings.autoEnd === false);
-    card('Battle animations', 'The blow, writ large', 'Big cut-in duels on every hit, the way the old war games did it. Off skips straight to the numbers.',
-      settings.duelAnims !== false, () => settings.duelAnims = settings.duelAnims === false);
+    { // battle animations cycle three states, like the old war games
+      const DM_LABEL = { all: 'ALL HITS', kills: 'KILLS & BOSSES', off: 'OFF' };
+      const dmNow = duelMode();
+      const d3 = document.createElement('div');
+      d3.className = 'choice';
+      d3.innerHTML = '<h3>Battle animations<span class="costTag">' + DM_LABEL[dmNow] + '</span></h3>'
+        + '<div class="role">Click to cycle</div><div class="blurb">Big cut-in duels, the way the old war games did it. Every hit, only the moments that matter, or straight to the numbers.</div>';
+      d3.style.borderColor = dmNow !== 'off' ? '#6b5741' : '';
+      d3.addEventListener('click', () => {
+        settings.duelAnims = dmNow === 'all' ? 'kills' : dmNow === 'kills' ? 'off' : 'all';
+        saveSettings(); render();
+      });
+      box.appendChild(d3);
+    }
+    card('Atmosphere', 'Haze, embers, daylight, vignette', 'The drifting air layers. Turn them off for a plainer, faster board without touching motion settings.',
+      settings.atmosphere !== false, () => settings.atmosphere = settings.atmosphere === false);
+    card('High contrast', 'No tint, no dark corners', 'Removes the floor colour wash and the edge vignette so every tile reads at full value.',
+      !!settings.highContrast, () => settings.highContrast = !settings.highContrast);
+    card('Large text', 'Bigger panels and buttons', 'Raises the size of the side panel, log, and buttons about a fifth.',
+      !!settings.bigText, () => { settings.bigText = !settings.bigText; applyUiClasses(); });
+    { // reset the first-time tips
+      const d4 = document.createElement('div');
+      d4.className = 'choice';
+      d4.innerHTML = '<h3>Show tips again<span class="costTag">' + (meta.tipsSeen.length ? meta.tipsSeen.length + ' SEEN' : 'FRESH') + '</span></h3>'
+        + '<div class="role">First-time cards</div><div class="blurb">Forget which tips you have read, so every one shows once more at its moment.</div>';
+      d4.addEventListener('click', () => { meta.tipsSeen = []; saveMeta(); render(); });
+      box.appendChild(d4);
+    }
+    if (run) { // abandon, two clicks so a misclick costs nothing
+      const d5 = document.createElement('div');
+      d5.className = 'choice';
+      const armed = screenSettings.armAbandon;
+      d5.innerHTML = '<h3 style="color:#c25a3e">' + (armed ? 'Click again to abandon' : 'Abandon the run') + '</h3>'
+        + '<div class="role">The company stays down there</div><div class="blurb">' + (armed ? 'This ends the run as a loss. There is no coming back for them.' : 'Give up this descent. Tallies and unlocks keep; the company does not.') + '</div>';
+      d5.addEventListener('click', () => {
+        if (!screenSettings.armAbandon) { screenSettings.armAbandon = true; render(); return; }
+        screenSettings.armAbandon = false;
+        for (const p of run.party) recordFate(p, 'lost', run.floorIdx + 1);
+        clearRun(); st = null; run = null; goTitle();
+      });
+      box.appendChild(d5);
+    }
 
     $('mFoot').innerHTML = '';
     const back = document.createElement('button');
@@ -1977,6 +2038,8 @@ $('btnAbandon').addEventListener('click', () => {
 // the whole thing to whatever window it lands in.
 function applyMotionClass() { document.body.classList.toggle('reduced-motion', !!settings.reducedMotion); }
 applyMotionClass();
+function applyUiClasses() { document.body.classList.toggle('bigText', !!settings.bigText); }
+applyUiClasses();
 
 function fitStage() {
   const s = Math.min(1, (window.innerWidth - 24) / 1290, (window.innerHeight - 24) / 620);
@@ -2076,7 +2139,7 @@ function step(dt) {
       else if (f.kind === 'heal') play('heal', o);
       else if (f.kind === 'snd') { play(f.s, o); if (f.s === 'warn') tip('windup'); }
       else if (f.kind === 'duel') {
-        if (settings.duelAnims !== false && !settings.reducedMotion && !view.duel) {
+        if (duelWanted(f) && !view.duel) {
           view.duel = Object.assign({}, f, { t0: performance.now(), dur: 1150 });
         }
       }
@@ -2103,15 +2166,20 @@ function step(dt) {
     for (const f of st.fx) {
       if (f.kind === 'duel' && !f.heard) {
         f.heard = true;
-        if (settings.duelAnims !== false && !settings.reducedMotion && !view.duel) {
+        if (duelWanted(f) && !view.duel) {
           view.duel = Object.assign({}, f, { t0: performance.now(), dur: 1150 });
         }
       }
     }
     st.fx = st.fx.filter(f => f.kind !== 'duel' && f.kind !== 'snd');
   }
+  for (const f of st.fx) {
+    if (f.kind === 'hit' && f.amount >= 10 && !f.pulsed) { f.pulsed = true; view.hitPulse = performance.now(); }
+  }
   view.shakeEnabled = settings.screenShake !== false && !settings.reducedMotion;
   view.reducedMotion = !!settings.reducedMotion;
+  view.atmosphere = settings.atmosphere !== false;
+  view.highContrast = !!settings.highContrast;
   view.cbThreat = !!settings.cbThreat;
   view.hideNumbers = settings.dmgNumbers === false;
   R.draw(ctx, st, view);

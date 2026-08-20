@@ -561,12 +561,12 @@ export function moveUnit(st, u, tx, ty) {
   return true;
 }
 
-function pushDuel(st, u, target, roll) {
+function pushDuel(st, u, target, roll, abName) {
   if (target.structure) return;
   st.fx.push({ kind: 'duel', t: 0,
     a: { defId: u.defId, custom: u.custom, boss: u.boss },
     d: { defId: target.defId, custom: target.custom, boss: target.boss },
-    aSide: u.side, dmg: roll, kill: target.hp - roll <= 0 });
+    aSide: u.side, dmg: roll, kill: target.hp - roll <= 0, abName: abName || null });
 }
 
 export function basicAttack(st, u, target) {
@@ -691,7 +691,7 @@ export function resolveAbility(st, u, aid, ab, tx, ty, dir) {
       animLunge(u, tx, ty);
       const prof = damageProfile(st, u, tgt, { dmg: ab.dmg, pierce: ab.pierce });
       const roll = st.rng.int(prof.min, prof.max);
-      pushDuel(st, u, tgt, roll);
+      pushDuel(st, u, tgt, roll, ab.name);
       applyDamage(st, tgt, roll, u, { pierce: ab.pierce });
       if (ab.status && tgt.alive) addStatus(tgt, ab.status, ab.dur, ab.val);
       logLine(st, u.name + ' uses ' + ab.name + ' for ' + roll + '.');

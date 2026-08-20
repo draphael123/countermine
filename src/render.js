@@ -515,7 +515,8 @@ export function draw(ctx, st, view) {
   drawFx(ctx, st);
 
   // ---- the Breach is open to the sky somewhere: one shaft of day, floor 1 only
-  if (view.floorN === 1 && !view.reducedMotion) {
+  const atmos = !view.reducedMotion && view.atmosphere !== false;
+  if (view.floorN === 1 && atmos) {
     const sx0 = CW * 0.60, wTop = 54, lean = 90;
     ctx.save();
     const lg = ctx.createLinearGradient(sx0 + lean * 0.5, 0, sx0 + lean * 0.5 + 40, CH);
@@ -543,7 +544,7 @@ export function draw(ctx, st, view) {
   }
 
   // ---- underground air: two sheets of haze drifting at different speeds
-  if (!view.reducedMotion) {
+  if (atmos) {
   const hz = hazeSheet();
   ctx.save();
   ctx.globalAlpha = 0.05;
@@ -556,7 +557,7 @@ export function draw(ctx, st, view) {
   }
 
   // ---- floor atmospheres: drips in the Sump, rising embers in the Countermine
-  if (!view.reducedMotion) drawFloorParticles(ctx, view.floorN, t);
+  if (atmos) drawFloorParticles(ctx, view.floorN, t);
 
   // ---- floor grade: one tint unifies each floor's palette
   const GRADE = {
@@ -564,16 +565,33 @@ export function draw(ctx, st, view) {
     2: 'rgba(70,130,130,0.05)',
     3: 'rgba(200,72,40,0.045)',
   };
-  ctx.fillStyle = GRADE[view.floorN] || GRADE[1];
-  ctx.fillRect(0, 0, CW, CH);
+  if (!view.highContrast) {
+    ctx.fillStyle = GRADE[view.floorN] || GRADE[1];
+    ctx.fillRect(0, 0, CW, CH);
+  }
 
   // ---- vignette. It is a dungeon; the edges should not be as lit as the
   // middle -- but the corners still have to be legible tiles, not mud.
-  const vg = ctx.createRadialGradient(CW / 2, CH / 2, CH * 0.5, CW / 2, CH / 2, CH * 1.15);
-  vg.addColorStop(0, 'rgba(0,0,0,0)');
-  vg.addColorStop(1, 'rgba(0,0,0,0.38)');
-  ctx.fillStyle = vg;
-  ctx.fillRect(0, 0, CW, CH);
+  if (!view.highContrast) {
+    const vg = ctx.createRadialGradient(CW / 2, CH / 2, CH * 0.5, CW / 2, CH / 2, CH * 1.15);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.38)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, CW, CH);
+  }
+
+  // ---- a big hit flashes the board's edges red for a beat
+  if (view.hitPulse) {
+    const hp = (rawT - view.hitPulse) / 380;
+    if (hp >= 0 && hp < 1) {
+      const ha = (1 - hp) * 0.22;
+      const eg = ctx.createRadialGradient(CW / 2, CH / 2, CH * 0.55, CW / 2, CH / 2, CH * 1.05);
+      eg.addColorStop(0, 'rgba(180,40,20,0)');
+      eg.addColorStop(1, 'rgba(180,40,20,' + ha.toFixed(3) + ')');
+      ctx.fillStyle = eg;
+      ctx.fillRect(0, 0, CW, CH);
+    }
+  }
 
   // ---- boss bar: the floor's master gets a real bar with a name
   const boss = st.units.find(u => u.alive && u.boss);
@@ -676,8 +694,36 @@ export function draw(ctx, st, view) {
     ctx.fillStyle = '#080605';
     ctx.fillRect(0, 0, CW, CH);
     ctx.globalAlpha = aDuel;
-    // the ground they meet on
+    // the ground they meet on -- and the floor's own darkness behind it
     const gy = CH * 0.68;
+    const acc = (view.palette && view.palette.accent) || '#6a4a2f';
+    const accA = (a) => { const n = parseInt(acc.slice(1), 16);
+      return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')'; };
+    const bgD = ctx.createLinearGradient(0, gy - 210, 0, gy + 10);
+    bgD.addColorStop(0, 'rgba(0,0,0,0)');
+    bgD.addColorStop(1, accA(0.16));
+    ctx.fillStyle = bgD;
+    ctx.fillRect(CW * 0.10, gy - 210, CW * 0.80, 220);
+    // rubble mounds on the horizon, deterministic
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    for (let mi = 0; mi < 9; mi++) {
+      const mw = 40 + ((mi * 53) % 60), mh = 10 + ((mi * 29) % 26);
+      const mx = CW * 0.10 + (mi / 9) * CW * 0.78;
+      ctx.beginPath();
+      ctx.moveTo(mx, gy); ctx.lineTo(mx + mw / 2, gy - mh); ctx.lineTo(mx + mw, gy);
+      ctx.closePath(); ctx.fill();
+    }
+    // two torches frame the circle
+    for (const tx of [CW * 0.13, CW * 0.87]) {
+      const fl = 0.75 + Math.sin(rawT / 90 + tx) * 0.25;
+      const tg = ctx.createRadialGradient(tx, gy - 46, 2, tx, gy - 46, 46 * fl);
+      tg.addColorStop(0, 'rgba(255,190,90,0.30)');
+      tg.addColorStop(1, 'rgba(255,190,90,0)');
+      ctx.fillStyle = tg;
+      ctx.fillRect(tx - 50, gy - 100, 100, 110);
+      ctx.fillStyle = '#2a211a'; ctx.fillRect(tx - 2, gy - 44, 4, 44);
+      ctx.fillStyle = '#ffca70'; ctx.fillRect(tx - 2.5, gy - 52, 5, 8);
+    }
     const strip = ctx.createLinearGradient(0, gy - 8, 0, gy + 40);
     strip.addColorStop(0, '#2b2420');
     strip.addColorStop(1, '#0d0a08');
@@ -707,6 +753,36 @@ export function draw(ctx, st, view) {
     ctx.drawImage(defSpr, -defSpr.width / 2, -defSpr.height + 4);
     ctx.restore();
     ctx.imageSmoothingEnabled = true;
+    // sparks burst off the blow itself
+    if (p > 0.44 && p < 0.66) {
+      const sp = (p - 0.44) / 0.22;
+      ctx.save();
+      ctx.globalAlpha = (1 - sp) * aDuel;
+      for (let si = 0; si < 10; si++) {
+        const sa = si * 0.63 + (d2.dmg || 1) * 0.9;
+        const sr = 8 + sp * 64;
+        ctx.fillStyle = si % 3 ? '#ffd98a' : '#ff8a5a';
+        ctx.fillRect(dxp - (aLeft ? 20 : -20) * sp + Math.cos(sa) * sr * 0.8,
+          gy - 70 + Math.sin(sa) * sr * 0.7 + sp * sp * 30, 3, 3);
+      }
+      ctx.restore();
+    }
+    // the move's name over the attacker
+    if (d2.abName && p > 0.1) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, (p - 0.1) * 5) * aDuel;
+      ctx.font = '17px "IM Fell", Georgia, serif';
+      ctx.textAlign = 'center';
+      const nx = ax, ny2 = gy - 188;
+      const nw = ctx.measureText(d2.abName).width + 26;
+      ctx.fillStyle = 'rgba(12,9,7,0.85)';
+      ctx.fillRect(nx - nw / 2, ny2 - 15, nw, 22);
+      ctx.strokeStyle = accA(0.8); ctx.lineWidth = 1;
+      ctx.strokeRect(nx - nw / 2, ny2 - 15, nw, 22);
+      ctx.fillStyle = '#d8c9a3';
+      ctx.fillText(d2.abName, nx, ny2 + 1);
+      ctx.restore();
+    }
     // the number lands with the blow
     if (p > 0.46) {
       const np = Math.min(1, (p - 0.46) / 0.3);
@@ -1003,6 +1079,13 @@ function drawFx(ctx, st) {
         const big = f.amount >= 10;
         if (f.vx === undefined) f.vx = ((f.x * 7 + f.y * 13 + f.amount) % 5 - 2) * 5.5;
         ctx.font = 'bold ' + (big ? 22 : 16) + 'px "Courier New", monospace';
+        if (big && f.t < 12) { // shock ring rolling out from the blow
+          ctx.strokeStyle = 'rgba(255,220,170,' + (0.55 * (1 - f.t / 12)).toFixed(3) + ')';
+          ctx.lineWidth = 2.5 - f.t * 0.15;
+          ctx.beginPath();
+          ctx.arc(px + TILE / 2, py + TILE / 2, 6 + f.t * 3.4, 0, 6.29);
+          ctx.stroke();
+        }
         if (f.t < 5) { // impact chips on the first frames
           ctx.fillStyle = f.side === 'player' ? 'rgba(200,80,60,0.8)' : 'rgba(220,200,170,0.8)';
           for (let ci = 0; ci < 4; ci++) {
@@ -1110,6 +1193,23 @@ function drawFx(ctx, st) {
         keep.push(f);
       }
     } else if (f.kind === 'death') {
+      if (f.t < 55) keep.push(f);
+      { // rising embers, deterministic per tile so frames agree
+        const { px, py } = tileToPx(f.x, f.y);
+        const eLife = f.t / 55;
+        if (eLife < 1) {
+          ctx.save();
+          for (let i = 0; i < 6; i++) {
+            const seed = (f.x * 31 + f.y * 17 + i * 7) % 13;
+            const ph = Math.min(1, eLife * (1 + (seed % 4) * 0.18));
+            ctx.globalAlpha = (1 - ph) * 0.7;
+            ctx.fillStyle = i % 2 ? '#e08a3c' : (f.side === 'player' ? '#c85a4a' : '#c9b183');
+            const exx = px + TILE / 2 + (seed - 6) * 2.2 + Math.sin(ph * 6 + seed) * 3;
+            ctx.fillRect(exx, py + TILE / 2 - ph * 34, 2, 2);
+          }
+          ctx.restore();
+        }
+      }
       const life = f.t / 30;
       if (life < 1) {
         const { px, py } = tileToPx(f.x, f.y);
@@ -1122,7 +1222,6 @@ function drawFx(ctx, st) {
           ctx.fillRect(px + TILE / 2 + Math.cos(a) * r, py + TILE / 2 + Math.sin(a) * r, 4, 4);
         }
         ctx.restore();
-        keep.push(f);
       }
     }
   }
