@@ -330,21 +330,21 @@ export const RELICS = [
 export const FLOORS = [
   {
     n: 1, name: 'THE BREACH', sub: 'Where the wall came down on both of them.',
-    palette: { floor: '#2b2724', wall: '#53433a', accent: '#6a4a2f' },
+    palette: { floor: '#2b2724', wall: '#4e453f', accent: '#6a4a2f' },
     pool: ['starveling', 'starveling', 'trencher', 'arbalest', 'hound'],
     elitePool: ['ironhusk', 'bellman'],
     budget: [7, 11], eliteBudget: 13, boss: 'breacher', gold: [45, 70],
   },
   {
     n: 2, name: 'THE SUMP GALLERIES', sub: 'Flooded in the second year. Still garrisoned.',
-    palette: { floor: '#232a2b', wall: '#41544f', accent: '#3f6360' },
+    palette: { floor: '#232a2b', wall: '#3d4c49', accent: '#3f6360' },
     pool: ['starveling', 'trencher', 'arbalest', 'hound', 'drowned', 'bellman'],
     elitePool: ['ironhusk', 'drowned', 'arbalest'],
     budget: [12, 17], eliteBudget: 19, boss: 'choirmaster', gold: [60, 90],
   },
   {
     n: 3, name: 'THE COUNTERMINE', sub: 'Neither army dug this one.',
-    palette: { floor: '#2a2226', wall: '#4e3c46', accent: '#6b3546' },
+    palette: { floor: '#2a2226', wall: '#483d44', accent: '#6b3546' },
     pool: ['trencher', 'arbalest', 'hound', 'drowned', 'bellman', 'ironhusk'],
     elitePool: ['ironhusk', 'ironhusk', 'bellman', 'drowned'],
     budget: [17, 22], eliteBudget: 24, boss: 'undermaster', gold: [80, 120],

@@ -88,16 +88,29 @@ export function draw(ctx, st, view) {
       if (tile.t === T.WALL) {
         ctx.drawImage(wallTile(TILE, pal.wall, tile.rubbleSeed), px, py);
       } else if (tile.t === T.PIT) {
-        ctx.fillStyle = '#050404';
-        ctx.fillRect(px, py, TILE, TILE);
-        const gr = ctx.createRadialGradient(px + TILE / 2, py + TILE / 2, 2, px + TILE / 2, py + TILE / 2, TILE * 0.7);
+        // the shaft: floor-coloured rim collapsing into black, far lip lit
+        ctx.drawImage(floorTile(TILE, pal.floor, tile.rubbleSeed), px, py);
+        const cx2 = px + TILE / 2, cy2 = py + TILE / 2;
+        const gr = ctx.createRadialGradient(cx2, cy2 + 3, 2, cx2, cy2, TILE * 0.62);
         gr.addColorStop(0, '#000');
-        gr.addColorStop(1, shade(pal.floor, -14));
+        gr.addColorStop(0.72, 'rgba(4,3,3,0.96)');
+        gr.addColorStop(1, 'rgba(4,3,3,0)');
         ctx.fillStyle = gr;
-        ctx.fillRect(px, py, TILE, TILE);
-        ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(px + 1, py + 1, TILE - 2, TILE - 2);
+        ctx.beginPath();
+        ctx.ellipse(cx2, cy2, TILE * 0.46, TILE * 0.42, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,236,205,0.10)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.ellipse(cx2, cy2 + 1.5, TILE * 0.44, TILE * 0.40, 0, Math.PI * 0.08, Math.PI * 0.92);
+        ctx.stroke();
+        ctx.fillStyle = shade(pal.floor, -10);
+        const rs = tile.rubbleSeed;
+        for (let k = 0; k < 4; k++) {
+          const a = (rs * 0.37 + k * 1.7) % 6.28;
+          const rx2 = cx2 + Math.cos(a) * TILE * 0.44, ry2 = cy2 + Math.sin(a) * TILE * 0.40;
+          ctx.fillRect(rx2 - 2, ry2 - 1.5, 4, 3);
+        }
       } else if (tile.t === T.MUD) {
         ctx.drawImage(mudTile(TILE, shade(pal.floor, -6), tile.rubbleSeed), px, py);
       } else {
@@ -121,18 +134,34 @@ export function draw(ctx, st, view) {
     }
   }
 
-  // ---- wall drop shadows: masonry sits ON the floor, it does not float
+  // ---- contact shadows: every open tile touching masonry darkens toward it.
+  // This one pass is most of what makes the board read as a SPACE.
   for (let y = 0; y < GH; y++) {
     for (let x = 0; x < GW; x++) {
       if (st.grid[y][x].t !== T.WALL) continue;
-      const below = tileAt(st, x, y + 1);
-      if (!below || below.t === T.WALL) continue;
-      const { px, py } = tileToPx(x, y + 1);
-      const sh = ctx.createLinearGradient(0, py, 0, py + 14);
-      sh.addColorStop(0, 'rgba(0,0,0,0.38)');
-      sh.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = sh;
-      ctx.fillRect(px, py, TILE, 14);
+      const sides = [
+        { dx: 0, dy: 1, w: TILE, h: 13, gx: 0, gy: 1, a: 0.40 },   // below: strongest
+        { dx: 0, dy: -1, w: TILE, h: 8, gx: 0, gy: -1, a: 0.22 },
+        { dx: -1, dy: 0, w: 9, h: TILE, gx: -1, gy: 0, a: 0.25 },
+        { dx: 1, dy: 0, w: 9, h: TILE, gx: 1, gy: 0, a: 0.25 },
+      ];
+      for (const sd of sides) {
+        const nb = tileAt(st, x + sd.dx, y + sd.dy);
+        if (!nb || nb.t === T.WALL) continue;
+        const { px, py } = tileToPx(x + sd.dx, y + sd.dy);
+        let x0 = px, y0 = py, x1, y1;
+        if (sd.dy === 1) { x1 = px; y1 = py + sd.h; }
+        else if (sd.dy === -1) { y0 = py + TILE; x1 = px; y1 = py + TILE - sd.h; }
+        else if (sd.dx === -1) { x0 = px + TILE; x1 = px + TILE - sd.w; y1 = py; }
+        else { x1 = px + sd.w; y1 = py; }
+        const sh = ctx.createLinearGradient(x0, y0, x1, y1);
+        sh.addColorStop(0, 'rgba(0,0,0,' + sd.a + ')');
+        sh.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = sh;
+        const rx = Math.min(x0, x1 === undefined ? x0 : x1), ry = Math.min(y0, y1 === undefined ? y0 : y1);
+        if (sd.dy !== 0) ctx.fillRect(px, sd.dy === 1 ? py : py + TILE - sd.h, TILE, sd.h);
+        else ctx.fillRect(sd.dx === -1 ? px + TILE - sd.w : px, py, sd.w, TILE);
+      }
     }
   }
 

@@ -374,48 +374,121 @@ export const CUSTOM_OPTIONS = {
 // ------------------------------------------------------------------- tiles
 // Baked at tile size, high-frequency noise only -- low-frequency blotches make
 // the tiling obvious the moment you look at a floor.
+// The single biggest "prototype" tell was the tile lattice: every tile
+// identically outlined reads as a debug grid. Real flagstones vary in VALUE
+// tile to tile, and their seams are broken lines that only sometimes show.
 export function floorTile(size, colour, seed) {
   return bake('f:' + size + colour + seed, size, size, (g, W, H) => {
-    g.fillStyle = colour;
-    g.fillRect(0, 0, W, H);
     let s = seed;
     const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
-    for (let i = 0; i < 90; i++) {
+    // per-slab value shift: adjacent tiles differ, so the floor reads as laid
+    // stone instead of a printed grid
+    const lift = ((seed % 7) - 3) * 3;
+    const base = shade(colour, lift);
+    g.fillStyle = base;
+    g.fillRect(0, 0, W, H);
+    // one soft diagonal value sweep per slab -- stone is never one flat value
+    const gr = g.createLinearGradient(0, 0, W, H);
+    gr.addColorStop(0, 'rgba(255,240,220,0.030)');
+    gr.addColorStop(1, 'rgba(0,0,0,0.050)');
+    g.fillStyle = gr;
+    g.fillRect(0, 0, W, H);
+    // high-frequency grain only
+    for (let i = 0; i < 70; i++) {
       const v = rnd();
-      g.fillStyle = 'rgba(' + (v > 0.5 ? '255,255,255,0.035' : '0,0,0,0.06') + ')';
+      g.fillStyle = 'rgba(' + (v > 0.5 ? '255,255,255,0.030' : '0,0,0,0.055') + ')';
       g.fillRect(rnd() * W | 0, rnd() * H | 0, 1 + (rnd() * 2 | 0), 1);
     }
-    // flagstone seam
-    g.strokeStyle = 'rgba(0,0,0,0.28)';
+    // seams: broken, unequal, and absent on some edges entirely
+    g.strokeStyle = 'rgba(0,0,0,0.30)';
     g.lineWidth = 1;
-    g.strokeRect(0.5, 0.5, W - 1, H - 1);
+    const edge = (x1, y1, x2, y2, show) => {
+      if (!show) return;
+      g.beginPath();
+      let n = 3 + (rnd() * 2 | 0);
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        const px = x1 + (x2 - x1) * t + (rnd() - 0.5) * 1.6;
+        const py = y1 + (y2 - y1) * t + (rnd() - 0.5) * 1.6;
+        if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+      }
+      g.stroke();
+    };
+    edge(0.5, 0.5, W - 0.5, 0.5, rnd() > 0.35);
+    edge(0.5, 0.5, 0.5, H - 0.5, rnd() > 0.35);
+    // a corner chip on some slabs
+    if (rnd() > 0.72) {
+      g.fillStyle = 'rgba(0,0,0,0.18)';
+      const cw = 4 + rnd() * 6;
+      g.beginPath();
+      g.moveTo(0, 0); g.lineTo(cw, 0); g.lineTo(0, cw);
+      g.closePath(); g.fill();
+    }
   });
 }
 
+// Walls are drawn as MASONRY WITH A TOP: a lit cap face (the surface you look
+// down on) over a dark front face with stone courses. That one division is
+// what makes a square read as three-dimensional on a top-down camera.
 export function wallTile(size, colour, seed) {
   return bake('w:' + size + colour + seed, size, size, (g, W, H) => {
-    g.fillStyle = colour;
-    g.fillRect(0, 0, W, H);
     let s = seed + 7;
     const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
-    // broken masonry: chunks, not noise
-    for (let i = 0; i < 7; i++) {
-      const x = rnd() * W * 0.8, y = rnd() * H * 0.8;
-      const w2 = 5 + rnd() * (W * 0.4), h2 = 4 + rnd() * (H * 0.3);
-      g.fillStyle = rnd() > 0.5 ? shade(colour, 14) : shade(colour, -14);
-      g.fillRect(x | 0, y | 0, w2 | 0, h2 | 0);
+    const capH = Math.round(H * 0.42);
+
+    // front face: dark courses of stone under the cap
+    const front = shade(colour, -34);
+    g.fillStyle = front;
+    g.fillRect(0, capH, W, H - capH);
+    let y = capH + 2;
+    let row = 0;
+    while (y < H - 2) {
+      const rh = 6 + (rnd() * 4 | 0);
+      let x = row % 2 ? -4 : 0;
+      while (x < W) {
+        const bw = 9 + (rnd() * 8 | 0);
+        g.fillStyle = shade(front, (rnd() * 16 - 8) | 0);
+        g.fillRect(x + 1, y, Math.min(bw, W - x - 1), Math.min(rh, H - y - 1));
+        x += bw + 1;
+      }
+      y += rh + 1; row++;
     }
-    // Bevel: blocking terrain has to read as RAISED at a glance, or players
-    // path into it and only find out from the move overlay.
-    g.fillStyle = 'rgba(255,232,200,0.10)';
-    g.fillRect(0, 0, W, 3);
-    g.fillRect(0, 0, 3, H);
-    g.fillStyle = 'rgba(0,0,0,0.45)';
-    g.fillRect(0, H - 5, W, 5);
-    g.fillRect(W - 4, 0, 4, H);
-    g.strokeStyle = 'rgba(0,0,0,0.6)';
+    // mortar shadow between cap and face
+    g.fillStyle = 'rgba(0,0,0,0.55)';
+    g.fillRect(0, capH, W, 2);
+
+    // cap: the lit top surface, cracked into a few big irregular stones
+    const cap = shade(colour, 10);
+    g.fillStyle = cap;
+    g.fillRect(0, 0, W, capH);
+    const capGr = g.createLinearGradient(0, 0, 0, capH);
+    capGr.addColorStop(0, 'rgba(255,236,205,0.14)');
+    capGr.addColorStop(1, 'rgba(0,0,0,0.10)');
+    g.fillStyle = capGr;
+    g.fillRect(0, 0, W, capH);
+    g.strokeStyle = 'rgba(0,0,0,0.30)';
     g.lineWidth = 1;
-    g.strokeRect(0.5, 0.5, W - 1, H - 1);
+    const cuts = 1 + (rnd() * 2 | 0);
+    for (let i = 0; i < cuts; i++) {
+      const cx = 8 + rnd() * (W - 16);
+      g.beginPath();
+      g.moveTo(cx + (rnd() - 0.5) * 4, 0);
+      g.lineTo(cx + (rnd() - 0.5) * 8, capH);
+      g.stroke();
+    }
+    // rubble spill at the foot -- these walls FELL, they were not built here
+    g.fillStyle = shade(colour, -18);
+    for (let i = 0; i < 4; i++) {
+      const rx = rnd() * W, rr = 2 + rnd() * 3.5;
+      g.beginPath();
+      g.moveTo(rx, H - 1); g.lineTo(rx + rr, H - 1 - rr * 0.8); g.lineTo(rx + rr * 2, H - 1);
+      g.closePath(); g.fill();
+    }
+    // silhouette
+    g.fillStyle = 'rgba(255,236,205,0.10)';
+    g.fillRect(0, 0, W, 2);
+    g.fillStyle = 'rgba(0,0,0,0.5)';
+    g.fillRect(0, H - 2, W, 2);
   });
 }
 
