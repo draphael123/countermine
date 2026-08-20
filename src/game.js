@@ -8,7 +8,7 @@ import * as R from './render.js';
 import { drawPortrait, CUSTOM_OPTIONS, FIGURES, portraitURL, PROP_NAMES } from './art.js';
 import { openCreator, closeCreator, makeCaptain, defaultCaptain, randomCaptain } from './creator.js';
 import { startTutorial, tickTutorial, tutorialActive, endTutorial, hideCoach } from './tutorial.js';
-import { play, unlockAudio, setSfxEnabled, startAmbience, stopAmbience } from './sfx.js';
+import { play, unlockAudio, setSfxEnabled, startAmbience, stopAmbience, setMusicMode } from './sfx.js';
 
 // =========================================================== persistent meta
 const META_KEY = 'countermine_meta_v1';
@@ -58,13 +58,28 @@ const cv = $('cv');
 const ctx = cv.getContext('2d');
 cv.width = R.CW; cv.height = R.CH;
 
+// A fade that never blocks: screens swap synchronously underneath while a
+// dark overlay softens the cut, then dissolves.
+function fadeFlash() {
+  const f = $('fader');
+  if (!f) return;
+  f.style.transition = 'none';
+  f.style.opacity = '0.9';
+  requestAnimationFrame(() => {
+    f.style.transition = 'opacity .30s ease-out';
+    f.style.opacity = '0';
+  });
+}
+
 // ================================================================== screens
 const SCREENS = ['title', 'mapScreen', 'modal', 'creator'];
 let currentScreen = 'title';
 function showScreen(id) {
+  if (currentScreen !== id) fadeFlash();
   currentScreen = id;
   if (settings.sound !== false && (id === 'battle' || id === 'mapScreen')) startAmbience();
-  if (id === 'title') stopAmbience();
+  if (id === 'title') { stopAmbience(); setMusicMode('off'); }
+  else if (settings.sound !== false && id !== 'battle') setMusicMode('map');
   $('mEyebrow').textContent = '';
   $('modal').classList.remove('intro');
   for (const s of SCREENS) $(s).classList.toggle('on', s === id);
@@ -245,7 +260,7 @@ function renderRoster() {
     const d = document.createElement('div');
     d.className = 'rosterCard';
     const frac = Math.max(0, p.hp / p.maxHp);
-    d.innerHTML = '<img class="pimg rosterP" src="' + portraitURL(p.defId, p.custom, 52, 62) + '" alt="">'
+    d.innerHTML = '<img class="pimg rosterP' + (p.hp / p.maxHp < 0.35 ? ' hurt' : '') + '" src="' + portraitURL(p.defId, p.custom, 52, 62) + '" alt="">'
       + '<div class="nm">' + p.name + '</div>'
       + '<div class="cls">' + c.name + (p.defId === 'captain' ? ' · you' : '') + '</div>'
       + '<div class="hpbar' + (frac <= .34 ? ' low' : '') + '"><i style="width:' + (frac*100) + '%"></i></div>'
@@ -289,7 +304,7 @@ function drawMap() {
       const walked = n.done && t.done;
       const stroke = active ? '#c2703a' : walked ? '#5b4a3a' : '#2c251f';
       const wdt = active ? 2.5 : 1.5;
-      s += '<line x1="' + colX(n.col) + '" y1="' + rowY(n.row) + '" x2="' + colX(t.col) + '" y2="' + rowY(t.row)
+      s += '<line' + (active ? ' class="march"' : '') + ' x1="' + colX(n.col) + '" y1="' + rowY(n.row) + '" x2="' + colX(t.col) + '" y2="' + rowY(t.row)
         + '" stroke="' + stroke + '" stroke-width="' + wdt + '" stroke-dasharray="5 6"'
         + (active ? ' filter="url(#nglow)"' : '') + '/>';
     }
@@ -395,6 +410,7 @@ function advanceFrom(node) {
 }
 
 function nextFloor() {
+  if (settings.sound !== false) play('descend');
   run.floorIdx++;
   if (run.floorIdx >= FLOORS.length) { runWon(); return; }
   run.map = buildFloorMap(run.rng, run.floorIdx);
@@ -459,6 +475,7 @@ function startBattle(node) {
     relics: run.relics,
   });
   st.difficulty = settings.difficulty;
+  if (settings.sound !== false) setMusicMode(kind === 'boss' ? 'boss' : 'battle');
   view.palette = floor.palette;
   view.floorN = floor.n;
   view.threat = settings.threatDefault ? E.threatMap(st) : null;
@@ -466,7 +483,14 @@ function startBattle(node) {
   mode = 'idle';
   $('floorTag').textContent = 'Floor ' + floor.n + ' · ' + floor.name + ' · ' + NODE_ART[node.type].label;
   showScreen('battle');
-  banner(kind === 'boss' ? floor.name : NODE_ART[node.type].label.toUpperCase(), 1100);
+  if (kind === 'boss') banner(BOSSES[floor.boss].name, 1900, 'boss');
+  else banner(NODE_ART[node.type].label.toUpperCase(), 1100);
+  // the company files in from the stair on the left
+  st.units.filter(u => u.side === 'player').forEach((u, i) => {
+    E.animWalk(u, [{ x: -2 - i, y: u.y }, { x: u.x, y: u.y }]);
+    u.anim.start = performance.now() + i * 150;
+    u.anim.dur = 430 + i * 40;
+  });
   E.logLine(st, 'Place the company, then begin.');
   syncUI();
   if (tutorialFight) {
@@ -480,11 +504,13 @@ function startBattle(node) {
   }
 }
 
-function banner(text, ms) {
-  if (settings.sound !== false) play('drum');
+function banner(text, ms, style) {
+  if (settings.sound !== false) play(style === 'boss' ? 'bossSting' : 'drum');
   const b = $('banner');
   b.firstElementChild.textContent = text;
+  b.classList.toggle('boss', style === 'boss');
   b.classList.add('on');
+  if (style === 'boss' && st) st.fx.push({ kind: 'shake', mag: 6, t: 0 });
   setTimeout(() => b.classList.remove('on'), ms);
 }
 
@@ -673,7 +699,7 @@ function syncUI() {
     row.className = 'unitRow' + (view.selected === u.uid ? ' sel' : '') + ((u.acted || !u.alive) ? ' done' : '');
     const frac = Math.max(0, u.hp / u.maxHp);
     row.innerHTML =
-      '<img class="pimg" src="' + portraitURL(u.defId, u.custom, 40, 48) + '" alt="">' +
+      '<img class="pimg' + (u.alive && u.hp / u.maxHp < 0.35 ? ' hurt' : '') + '" src="' + portraitURL(u.defId, u.custom, 40, 48) + '" alt="">' +
       '<div style="flex:1 1 auto;min-width:0">' +
       '<div class="nm">' + (u.alive ? u.name : '<s>' + u.name + '</s>') + '</div>' +
       '<div class="cls">' + u.def.name + (u.usesLoad ? (u.loaded || u.freeShot ? ' · loaded' : ' · empty') : '') + '</div>' +
@@ -863,6 +889,7 @@ function screenAftermath(gold, dead) {
     d.addEventListener('click', () => {
       if (full) { chooseWhoToLeave(o); return; }
       run.party.push({ id: uidCounter++, defId: o.defId, name: o.name, hp: o.hp, maxHp: c.hp, kills: 0 });
+      if (settings.sound !== false) play('recruit');
       advanceFrom(pendingNode);
     });
     box.appendChild(d);
@@ -1456,21 +1483,33 @@ function step(dt) {
   // translate battle events to audio here, never in the engine: headless
   // sims share these code paths and must stay silent
   if (settings.sound !== false) {
+    const panOf = (x) => x == null ? 0 : ((x / 15) * 2 - 1) * 0.65;
     for (const f of st.fx) {
       if (f.heard || f.kind === 'shake') continue;
       f.heard = true;
-      if (f.kind === 'hit' && f.amount != null) play(f.amount >= 10 ? 'heavy' : 'hit');
-      else if (f.kind === 'death') play(f.side === 'player' ? 'dirge' : 'death');
-      else if (f.kind === 'boom') play('boom');
-      else if (f.kind === 'sweep') play('sweep');
-      else if (f.kind === 'heal') play('heal');
-      else if (f.kind === 'snd') play(f.s);
+      const o = { pan: panOf(f.x != null ? f.x : f.x2) };
+      if (f.kind === 'hit' && f.amount != null) play(f.amount >= 10 ? 'heavy' : 'hit', o);
+      else if (f.kind === 'death') play(f.side === 'player' ? 'dirge' : 'death', o);
+      else if (f.kind === 'boom') play('boom', o);
+      else if (f.kind === 'sweep') play('sweep', o);
+      else if (f.kind === 'heal') play('heal', o);
+      else if (f.kind === 'snd') play(f.s, o);
     }
     st.fx = st.fx.filter(f => f.kind !== 'snd');
-    if (st.units.some(u => u.alive && u.anim && u.anim.kind === 'walk')) {
+    const walker = st.units.find(u => u.alive && u.anim && u.anim.kind === 'walk');
+    if (walker) {
       if (!step.lastStepSnd || performance.now() - step.lastStepSnd > 130) {
         step.lastStepSnd = performance.now();
-        play('step');
+        const tile = st.grid[walker.y] && st.grid[walker.y][walker.x];
+        play('step', { pan: panOf(walker.x), surface: tile && tile.t === 2 ? 'mud' : 'stone' });
+      }
+    }
+    // the captain, nearly done: a heartbeat you feel before you see it
+    const cap = st.units.find(u => u.isCaptain);
+    if (cap && cap.alive && cap.hp / cap.maxHp < 0.3 && st.phase !== 'deploy') {
+      if (!step.lastBeat || performance.now() - step.lastBeat > 1400) {
+        step.lastBeat = performance.now();
+        play('heartbeat');
       }
     }
   }

@@ -15,6 +15,26 @@ export function pxToTile(px, py) {
 
 const now = () => performance.now();
 
+// one soft blob sheet, tiled and scrolled two ways for depth
+let hazeCv = null;
+function hazeSheet() {
+  if (hazeCv) return hazeCv;
+  hazeCv = document.createElement('canvas');
+  hazeCv.width = 420; hazeCv.height = 260;
+  const g = hazeCv.getContext('2d');
+  let s = 977;
+  const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+  for (let i = 0; i < 9; i++) {
+    const x = rnd() * 420, y = rnd() * 260, rr = 45 + rnd() * 80;
+    const gr = g.createRadialGradient(x, y, 4, x, y, rr);
+    gr.addColorStop(0, 'rgba(196,186,168,0.55)');
+    gr.addColorStop(1, 'rgba(196,186,168,0)');
+    g.fillStyle = gr;
+    g.fillRect(x - rr, y - rr, rr * 2, rr * 2);
+  }
+  return hazeCv;
+}
+
 // Where a unit is DRAWN this frame -- its logical tile eased through any
 // pending walk/hop. Everything that draws at a unit (shadows, bars, torch
 // pools) uses this, or the sprite slides while its chrome teleports.
@@ -22,12 +42,14 @@ function drawPos(u, t) {
   const base = tileToPx(u.x, u.y);
   let px = base.px, py = base.py;
   if (u.anim) {
-    const p = (t - u.anim.start) / u.anim.dur;
+    // Clamp at BOTH ends: staggered entrance marches start in the future, and
+    // a negative progress indexed path[-1] and crashed the frame loop.
+    const p = Math.max(0, (t - u.anim.start) / u.anim.dur);
     if (p >= 1) { u.anim = null; }
     else if (u.anim.kind === 'walk') {
       const path = u.anim.path;
       const f = p * (path.length - 1);
-      const i = Math.min(path.length - 2, Math.floor(f));
+      const i = Math.max(0, Math.min(path.length - 2, Math.floor(f)));
       const k = f - i;
       const ax = path[i].x + (path[i + 1].x - path[i].x) * k;
       const ay = path[i].y + (path[i + 1].y - path[i].y) * k;
@@ -114,6 +136,18 @@ export function draw(ctx, st, view) {
         }
       } else if (tile.t === T.MUD) {
         ctx.drawImage(mudTile(TILE, shade(pal.floor, -6), tile.rubbleSeed), px, py);
+        // standing water moves, barely: one travelling glint per tile
+        const wph = (t / 900 + tile.rubbleSeed * 0.13) % 1;
+        ctx.save();
+        ctx.globalAlpha = 0.10 * Math.sin(wph * Math.PI);
+        ctx.strokeStyle = '#bcd8d4';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        const wy = py + 8 + wph * (TILE - 16);
+        ctx.moveTo(px + 7 + Math.sin(t / 700 + tile.rubbleSeed) * 3, wy);
+        ctx.lineTo(px + TILE - 9, wy + 1.5);
+        ctx.stroke();
+        ctx.restore();
       } else {
         ctx.drawImage(floorTile(TILE, pal.floor, tile.rubbleSeed), px, py);
       }
@@ -339,6 +373,45 @@ export function draw(ctx, st, view) {
   // ---- fx
   drawFx(ctx, st);
 
+  // ---- the Breach is open to the sky somewhere: one shaft of day, floor 1 only
+  if (view.floorN === 1) {
+    const sx0 = CW * 0.60, wTop = 54, lean = 90;
+    ctx.save();
+    const lg = ctx.createLinearGradient(sx0 + lean * 0.5, 0, sx0 + lean * 0.5 + 40, CH);
+    lg.addColorStop(0, 'rgba(255,244,214,0.10)');
+    lg.addColorStop(0.75, 'rgba(255,244,214,0.035)');
+    lg.addColorStop(1, 'rgba(255,244,214,0)');
+    ctx.fillStyle = lg;
+    ctx.beginPath();
+    ctx.moveTo(sx0, 0);
+    ctx.lineTo(sx0 + wTop, 0);
+    ctx.lineTo(sx0 + wTop + lean + 26, CH);
+    ctx.lineTo(sx0 + lean - 26, CH);
+    ctx.closePath();
+    ctx.fill();
+    // dust motes drifting down the beam
+    ctx.fillStyle = '#fff2d8';
+    for (let i = 0; i < 12; i++) {
+      const ph = (t / (2600 + i * 173) + i * 0.37) % 1;
+      const mx = sx0 + 10 + ((i * 37) % (wTop + 10)) + ph * lean;
+      const my = ph * CH;
+      ctx.globalAlpha = 0.28 * Math.sin(ph * Math.PI) * (0.6 + Math.sin(t / 460 + i * 1.9) * 0.4);
+      ctx.fillRect(mx, my, 1.6, 1.6);
+    }
+    ctx.restore();
+  }
+
+  // ---- underground air: two sheets of haze drifting at different speeds
+  const hz = hazeSheet();
+  ctx.save();
+  ctx.globalAlpha = 0.05;
+  const off1 = (t / 210) % hz.width, off2 = (t / 350) % hz.width;
+  for (let hx = -1; hx < CW / hz.width + 1; hx++) {
+    ctx.drawImage(hz, hx * hz.width + off1 - hz.width, 20);
+    ctx.drawImage(hz, hx * hz.width - off2, CH * 0.4);
+  }
+  ctx.restore();
+
   // ---- vignette. It is a dungeon; the edges should not be as lit as the
   // middle -- but the corners still have to be legible tiles, not mud.
   const vg = ctx.createRadialGradient(CW / 2, CH / 2, CH * 0.5, CW / 2, CH / 2, CH * 1.15);
@@ -466,6 +539,66 @@ function drawUnit(ctx, st, u, view, t) {
   }
   ctx.restore();
 
+  // ---- status effects ON the body -- pips tell you, these make you feel it
+  if (hasStatus(u, 'burning')) {
+    for (let i = 0; i < 3; i++) {
+      const ph = t / 90 + u.uid * 2.1 + i * 2.3;
+      const fx2 = cx - 8 + i * 8 + Math.sin(ph) * 2;
+      const fy2 = cy - 26 - ((t / 14 + i * 37 + u.uid * 13) % 26);
+      const fl = 0.5 + Math.sin(ph * 3) * 0.3;
+      ctx.save();
+      ctx.globalAlpha = fl * (1 - ((t / 14 + i * 37 + u.uid * 13) % 26) / 26);
+      ctx.fillStyle = i % 2 ? '#ffb35c' : '#e06a20';
+      ctx.beginPath();
+      ctx.ellipse(fx2, fy2, 2.2, 3.6, Math.sin(ph) * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.globalAlpha = 0.16 + Math.sin(t / 80 + u.uid) * 0.05;
+    const bg2 = ctx.createRadialGradient(cx, cy - 22, 2, cx, cy - 22, 22);
+    bg2.addColorStop(0, 'rgba(255,150,60,0.8)');
+    bg2.addColorStop(1, 'rgba(255,150,60,0)');
+    ctx.fillStyle = bg2;
+    ctx.fillRect(cx - 24, cy - 46, 48, 48);
+    ctx.restore();
+  }
+  if (hasStatus(u, 'bleed')) {
+    for (let i = 0; i < 2; i++) {
+      const cyc = (t / 9 + i * 53 + u.uid * 29) % 34;
+      ctx.save();
+      ctx.globalAlpha = 0.7 * (1 - cyc / 34);
+      ctx.fillStyle = '#8f1f16';
+      ctx.fillRect(cx - 6 + i * 10, cy - 34 + cyc, 2, 4);
+      ctx.restore();
+    }
+  }
+  if (hasStatus(u, 'rallied')) {
+    for (let i = 0; i < 3; i++) {
+      const cyc = (t / 16 + i * 41 + u.uid * 17) % 30;
+      ctx.save();
+      ctx.globalAlpha = 0.6 * (1 - cyc / 30);
+      ctx.fillStyle = '#e8c268';
+      ctx.fillRect(cx - 10 + i * 9 + Math.sin(t / 300 + i) * 2, cy - 16 - cyc, 2, 2);
+      ctx.restore();
+    }
+  }
+  if (hasStatus(u, 'guarded')) {
+    ctx.save();
+    ctx.globalAlpha = 0.22 + Math.sin(t / 260 + u.uid) * 0.08;
+    ctx.strokeStyle = '#8fc0e0';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - 22, 19, 26, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha *= 0.4;
+    ctx.fillStyle = '#8fc0e0';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - 22, 19, 26, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   // health bar with damage ghosting: the pale chunk is what the last hit took
   const barW = u.boss ? 44 : 30;
   const bx = cx - barW / 2, by = cy - (u.boss ? 78 : 60);
@@ -550,6 +683,44 @@ function drawFx(ctx, st) {
         ctx.strokeText(s, px + TILE / 2, py + 22 - life * 26);
         ctx.fillStyle = f.side === 'player' ? '#ff8a7a' : '#ffe0a0';
         ctx.fillText(s, px + TILE / 2, py + 22 - life * 26);
+        ctx.restore();
+        keep.push(f);
+      }
+    } else if (f.kind === 'slash') {
+      const life = f.t / 11;
+      if (life < 1) {
+        const { px, py } = tileToPx(f.x, f.y);
+        const cx2 = px + TILE / 2, cy2 = py + TILE / 2 - 8;
+        const baseA = Math.atan2(f.dy, f.dx);
+        ctx.save();
+        ctx.translate(cx2, cy2);
+        ctx.rotate(baseA);
+        ctx.globalAlpha = (1 - life) * 0.9;
+        ctx.strokeStyle = '#f2e6cc';
+        ctx.lineWidth = 3.2 * (1 - life * 0.5);
+        ctx.beginPath();
+        // a crescent swept across the target as the swing lands
+        ctx.arc(-10, 0, 17, -1.15 + life * 1.9, -0.25 + life * 1.9);
+        ctx.stroke();
+        ctx.globalAlpha = (1 - life) * 0.35;
+        ctx.lineWidth = 7 * (1 - life * 0.5);
+        ctx.beginPath();
+        ctx.arc(-10, 0, 15, -1.0 + life * 1.9, -0.35 + life * 1.9);
+        ctx.stroke();
+        ctx.restore();
+        keep.push(f);
+      }
+    } else if (f.kind === 'fall') {
+      const life = f.t / 30;
+      if (life < 1) {
+        const { px, py } = tileToPx(f.x, f.y);
+        const spr2 = unitSprite(f.defId, f.custom, 'idle');
+        ctx.save();
+        ctx.globalAlpha = 0.9 * (1 - life * life);
+        ctx.translate(px + TILE / 2, py + TILE);
+        ctx.scale(f.face || 1, 1);
+        ctx.rotate(Math.min(1, life * 1.6) * Math.PI / 2);
+        ctx.drawImage(spr2, -spr2.width / 2, -spr2.height + 4);
         ctx.restore();
         keep.push(f);
       }

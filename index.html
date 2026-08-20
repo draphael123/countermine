@@ -132,6 +132,14 @@ canvas { display: block; border: 1px solid var(--rule); background: #0a0908; }
   pointer-events: none; background: radial-gradient(ellipse at center, rgba(10,8,7,.35), rgba(10,8,7,.86));
 }
 #banner.on { display: flex; }
+#banner.boss div {
+  color: #e8b5a0; border-color: #8a3a2a;
+  text-shadow: 0 0 34px rgba(200,60,40,.55), 0 3px 0 #000;
+  letter-spacing: .3em; font-size: 40px;
+}
+#mapSvg line.march { animation: dashmove 1.1s linear infinite; }
+@keyframes dashmove { to { stroke-dashoffset: -22; } }
+.pimg.hurt { filter: brightness(.72) sepia(.45) hue-rotate(-28deg) saturate(1.7); }
 #banner div {
   font-size: 36px; letter-spacing: .36em; color: var(--bone);
   text-shadow: 0 0 40px #000, 0 3px 0 #000;
@@ -350,6 +358,7 @@ input[type=text]:focus { outline: none; border-color: var(--torch); }
 </head>
 <body>
 <div id="app"><div id="stage">
+  <div id="fader" style="position:absolute;inset:0;background:#070605;opacity:0;pointer-events:none;z-index:90"></div>
 
   <!-- ------------------------------------------------------------ battle -->
   <div id="battle">

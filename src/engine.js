@@ -484,6 +484,8 @@ export function killUnit(st, target, source) {
   const gt = tileAt(st, target.x, target.y);
   if (gt && gt.t === T.FLOOR) gt.stain = (target.uid * 37 + 11) % 997;
   st.fx.push({ kind: 'death', x: target.x, y: target.y, t: 0, side: target.side });
+  st.fx.push({ kind: 'fall', x: target.x, y: target.y, defId: target.defId, custom: target.custom,
+    face: target.face || (target.side === 'enemy' ? -1 : 1), t: 0 });
   st.fx.push({ kind: 'shake', mag: 5, t: 0 });
   logLine(st, target.name + ' falls.');
   if (source && source.side !== target.side) {
@@ -547,6 +549,8 @@ export function basicAttack(st, u, target) {
   if (u.usesLoad) st.fx.push({ kind: 'snd', s: 'bow' });
   if (u.range > 1 && Math.abs(u.x - target.x) + Math.abs(u.y - target.y) > 1) {
     st.fx.push({ kind: 'trace', x1: u.x, y1: u.y, x2: target.x, y2: target.y, col: '#d8c9a3', t: 0 });
+  } else {
+    st.fx.push({ kind: 'slash', x: target.x, y: target.y, dx: Math.sign(target.x - u.x), dy: Math.sign(target.y - u.y), t: 0 });
   }
   animLunge(u, target.x, target.y);
   const prof = damageProfile(st, u, target, {});
