@@ -161,7 +161,7 @@ export const CAPTAIN_BASE = {
   id: 'captain', name: 'Captain', short: 'CPT', role: 'Your officer',
   colour: '#e0b45c',
   hp: 22, mov: 3, armor: 0, range: 1, atk: [5, 7],
-  abilities: ['sig_rally'], locked: false, isCaptain: true,
+  abilities: ['sig_hold'], locked: false, isCaptain: true,
   blurb: 'Signed for the company. Nobody made them do it.',
 };
 
@@ -177,6 +177,31 @@ export const STAT_LINES = [
     text: '+2 damage a point on every attack you make.' },
 ];
 export const SIGNATURES = ['sig_rally', 'sig_hold', 'sig_hew', 'sig_ember', 'sig_grave', 'sig_oath'];
+
+// Where the captain was before the stair. A past, and one small edge from it —
+// options, never raw power, same law as everything else in the meta.
+export const ORIGINS = [
+  {
+    id: 'deserter', name: 'The Deserter',
+    past: 'You wore the other colours for three years. When your column was ordered down, you went over the wall instead — with the pay chest’s loose corner in your pack. Now you go down anyway, on your own terms.',
+    boon: '+40 starting gold', boonKey: 'gold',
+  },
+  {
+    id: 'mason', name: 'The Mason’s Child',
+    past: 'Your family built the east wall, course by course, and you learned the trade in its shadow. You were there the morning it came down. You know what the stone owes you.',
+    boon: 'Begin with the Mail Scraps relic', boonKey: 'scraps',
+  },
+  {
+    id: 'bonesetter', name: 'The Bonesetter',
+    past: 'You set fractures in the siege camps for a decade — both camps, when the pay ran that way. Old habits: you check your own wounds first, and you check them well.',
+    boon: 'Your captain recovers 4 health after every battle', boonKey: 'mend',
+  },
+  {
+    id: 'gravedigger', name: 'The Gravedigger',
+    past: 'Somebody had to bury what came back up. You listened to the survivors while you worked, and you wrote down what they said between the prayers.',
+    boon: 'The Ledger begins knowing every foe of Floor 1', boonKey: 'ledger',
+  },
+];
 
 export const CLASSES = {
   serjeant: {

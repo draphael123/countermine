@@ -336,7 +336,7 @@ input[type=text] {
 }
 input[type=text]:focus { outline: none; border-color: var(--torch); }
 
-.statRow { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
+.statRow { display: flex; align-items: center; gap: 9px; margin-bottom: 4px; }
 .statRow .nm { width: 92px; font-size: 12.5px; letter-spacing: .06em; }
 .statRow .track { flex: 1 1 auto; display: flex; gap: 3px; }
 .statRow .track i {
@@ -347,6 +347,18 @@ input[type=text]:focus { outline: none; border-color: var(--torch); }
 .statRow .val { width: 54px; text-align: right; font-size: 11.5px; color: var(--ink-dim); }
 .statRow button { padding: 2px 9px; font-size: 13px; line-height: 1.1; }
 .statRow button::before, .statRow button::after { display: none; }
+.originList { display: flex; flex-direction: column; gap: 5px; }
+.originOpt {
+  text-align: left; padding: 7px 10px; line-height: 1.3; border: 1px solid var(--rule);
+  background: linear-gradient(180deg, var(--stone2), var(--stone)); cursor: pointer;
+}
+.originOpt:hover { border-color: var(--rule2); }
+.originOpt.on { border-color: var(--gold); background: linear-gradient(#2e2515, #201a0c); }
+.originOpt b { font-weight: 400; font-size: 12.5px; color: var(--bone); display: block; }
+.originOpt span { font-size: 10.5px; color: var(--gold); }
+.spellGroup { font-size: 9.5px; letter-spacing: .28em; text-transform: uppercase; margin: 4px 0 1px; grid-column: 1 / -1; }
+#presetRow button.on { border-color: var(--torch); color: #f2dcbc; background: linear-gradient(#3a2413, #241708); }
+#portraitBox { cursor: pointer; }
 #pointsLeft { color: var(--torch); font-family: "Courier New", monospace; font-size: 15px; }
 .spellList { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; overflow: auto; max-height: 100%; }
 .spellOpt {
@@ -471,12 +483,20 @@ input[type=text]:focus { outline: none; border-color: var(--torch); }
         <div id="portraitBox"><canvas id="portrait" width="260" height="250"></canvas></div>
         <div class="panel">
           <div class="fieldLabel">Name on the roll</div>
-          <input type="text" id="capName" maxlength="14" spellcheck="false">
+          <div style="display:flex;gap:6px">
+            <input type="text" id="capName" maxlength="14" spellcheck="false" style="flex:1 1 auto">
+            <button id="nameDie" title="A different name" style="flex:0 0 auto;padding:6px 11px">&#9861;</button>
+          </div>
+        </div>
+        <div class="panel" style="flex:1 1 auto;overflow:auto">
+          <div class="eyebrow">Before the siege</div>
+          <div class="originList" id="originList"></div>
         </div>
       </div>
       <div class="creatorCol">
         <div class="panel">
           <div class="eyebrow">Allotment <span id="pointsLeft" style="float:right"></span></div>
+          <div class="optRow" id="presetRow" style="margin-bottom:9px"></div>
           <div id="statList"></div>
           <div class="hint" style="margin-top:9px" id="statHint"></div>
         </div>
@@ -492,10 +512,16 @@ input[type=text]:focus { outline: none; border-color: var(--torch); }
           <div class="optRow" id="optHelm"></div>
           <div class="fieldLabel" style="margin-top:12px">Arm</div>
           <div class="optRow" id="optWeapon"></div>
+          <div class="fieldLabel" style="margin-top:12px">Plume</div>
+          <div class="optRow" id="optPlume"></div>
+          <div class="fieldLabel" style="margin-top:12px">Build</div>
+          <div class="optRow" id="optBuild"></div>
           <div class="fieldLabel" style="margin-top:12px">Coat</div>
           <div class="swatchRow" id="optCloth"></div>
           <div class="fieldLabel" style="margin-top:12px">Colours</div>
           <div class="swatchRow" id="optTabard"></div>
+          <div class="fieldLabel" style="margin-top:12px">Trim</div>
+          <div class="swatchRow" id="optMetal"></div>
         </div>
         <div class="panel" style="flex:1 1 auto">
           <div class="eyebrow">Reckoning</div>

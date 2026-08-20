@@ -104,9 +104,9 @@ function buildSteps() {
   return [
     {
       title: 'Set the line', anchor: 'party',
-      text: 'This is your whole company. You brought two. Everyone else is somewhere '
-        + 'below, still alive, and will only join if you go and get them.<br><br>'
-        + 'Before a fight starts you can drag the line about: <b>click a soldier, then click a lit tile</b>.',
+      text: 'This is your whole company: <b>you</b>. Everyone else is somewhere below, '
+        + 'still alive, and three of them will offer to join after every fight you win.<br><br>'
+        + 'Before a fight starts you can place yourself: <b>click your captain, then click a lit tile</b>.',
     },
     {
       title: 'Begin', anchor: 'abilities',
@@ -159,8 +159,11 @@ function buildSteps() {
         if (!st) return true;
         // also advance if the fight ends first -- never strand the lesson
         if (['won', 'lost', 'ending'].includes(st.phase)) return true;
-        return st.units.some(u => u.side === 'player' && u.alive &&
-          Object.values(u.cds).some(cd => cd > 0));
+        // or if the round was spent another way (e.g. a signature with no
+        // legal target yet) -- a lesson must never strand its student
+        const mine = st.units.filter(u => u.side === 'player' && u.alive);
+        if (mine.length && mine.every(u => u.acted)) return true;
+        return mine.some(u => Object.values(u.cds).some(cd => cd > 0));
       },
     },
     {

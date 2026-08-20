@@ -1,7 +1,7 @@
 // COUNTERMINE -- run structure, screens, input, and the balance harness.
 import {
   CLASSES, ENEMIES, BOSSES, ABILITIES, RELICS, FLOORS, NAMES, DEATH_LINES,
-  CAPTAIN_BASE, ALLOTMENT, STAT_LINES, SIGNATURES,
+  CAPTAIN_BASE, ALLOTMENT, STAT_LINES, SIGNATURES, ORIGINS,
 } from './data.js';
 import * as E from './engine.js';
 import * as R from './render.js';
@@ -118,13 +118,20 @@ function newRun(seed, captain) {
     seed: s, rng, floorIdx: 0, gold: 60, relics: [], party: [], nodeId: null,
     map: null, cleared: 0, fights: 0, kills: 0, losses: 0,
   };
-  // The Serjeant always comes down. One other volunteers.
-  const others = meta.classes.filter(c => c !== 'serjeant');
-  const second = rng.pick(others.length ? others : ['pavisier']);
+  // You go down ALONE. Everyone else is found below.
   run.captain = cap;
   run.party.push({ id: uidCounter++, defId: 'captain', name: cap.name, hp: cap.def.hp,
     maxHp: cap.def.hp, kills: 0, def: cap.def, custom: cap.custom });
-  run.party.push(mkMember(second, rng));
+  // the origin's one small edge
+  const origin = (cap.cfg && cap.cfg.origin) || 'deserter';
+  if (origin === 'deserter') run.gold += 40;
+  else if (origin === 'mason' && !run.relics.includes('scraps')) run.relics.push('scraps');
+  else if (origin === 'gravedigger') {
+    for (const id of FLOORS[0].pool.concat(FLOORS[0].elitePool, [FLOORS[0].boss])) {
+      if (!meta.seenFoes.includes(id)) meta.seenFoes.push(id);
+    }
+    saveMeta();
+  }
   run.map = buildFloorMap(rng, 0);
   run.tutorial = !meta.seenTutorial;
   meta.runs++; saveMeta();
@@ -453,7 +460,7 @@ function enterNode(node) {
 // Encounters scale to how many soldiers you actually have. Losing someone must
 // make the next fight harder to WIN, not mathematically unwinnable -- otherwise
 // one bad round spirals the whole run and permadeath stops being a decision.
-const PARTY_SCALE = { 1: 0.4, 2: 0.58, 3: 0.8, 4: 1.0 };
+const PARTY_SCALE = { 1: 0.3, 2: 0.58, 3: 0.8, 4: 1.0 };
 
 function rollEnemies(rng, floor, kind, partySize) {
   const d = DIFF[settings.difficulty] || DIFF.regular;
@@ -907,6 +914,10 @@ function endBattle() {
   if (run.relics.includes('coin')) gold += 30;
   run.gold += gold;
   if (run.relics.includes('ironrations')) for (const p of run.party) p.hp = Math.min(p.maxHp, p.hp + 6);
+  if (run.captain && run.captain.cfg && run.captain.cfg.origin === 'bonesetter') {
+    const capM = run.party.find(p => p.defId === 'captain');
+    if (capM) capM.hp = Math.min(capM.maxHp, capM.hp + 4);
+  }
   run.fights++;
 
   screenBattleReport(report, gold, dead);
@@ -1584,9 +1595,9 @@ const INTRO = [
   },
   {
     h: 'YOUR COMPANY',
-    p: 'You take a Serjeant and one volunteer. Everyone else you will find down there — deserters, prisoners, '
-      + 'surgeons, whoever is still standing after a fight. Four is all the rations stretch to. '
-      + 'Nobody you lose comes back.',
+    p: 'You go down alone. Everyone you will fight beside is already down there — deserters, prisoners, '
+      + 'surgeons, whoever is still standing when the dust settles. Three of them will offer to join after every fight. '
+      + 'Four is all the rations stretch to, and nobody you lose comes back.',
   },
 ];
 

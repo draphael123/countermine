@@ -138,6 +138,24 @@ function drawFigure(g, w, h, spec, pose) {
   } else {
     g.beginPath(); g.arc(cx, headY, headR, 0, Math.PI * 2); g.fill();
   }
+  // plume: a crest of feathers off the helm crown, if the captain wears one
+  if (spec.plume) {
+    g.fillStyle = spec.plume;
+    const ptop = headY - headR - (spec.helm === 'conical' ? 6 : 2);
+    g.beginPath();
+    g.moveTo(cx + 1, ptop + 2);
+    g.quadraticCurveTo(cx + 7, ptop - 9, cx + 12, ptop - 4);
+    g.quadraticCurveTo(cx + 9, ptop - 1, cx + 6, ptop + 2);
+    g.closePath(); g.fill();
+    g.beginPath();
+    g.moveTo(cx, ptop + 2);
+    g.quadraticCurveTo(cx + 5, ptop - 12, cx + 10, ptop - 8);
+    g.quadraticCurveTo(cx + 7, ptop - 3, cx + 4, ptop + 1);
+    g.closePath(); g.fill();
+    g.fillStyle = shade(spec.plume, -28);
+    g.fillRect(cx - 1, ptop, 3, 4);
+  }
+
   // visor: a black slit is what makes it read as a helm and not a face
   g.fillStyle = '#0d0b0a';
   g.fillRect(cx - headR + 1.5, headY - 0.5, headR * 2 - 3, 2.6);
@@ -324,7 +342,7 @@ export function unitSprite(defId, custom, frame) {
   const spec = custom ? Object.assign({}, base, custom) : base;
   const pose = frame || 'idle';
   const key = 'u:' + defId + ':' + FIGSCALE + ':' + pose + ':' +
-    (custom ? [custom.cloth, custom.tabard, custom.helm, custom.weapon, custom.metal].join('|') : '-');
+    (custom ? [custom.cloth, custom.tabard, custom.helm, custom.weapon, custom.metal, custom.plume, custom.bulk].join('|') : '-');
   const big = (spec.bulk || 1) > 1.3;
   const w = big ? 92 : 68, h = big ? 108 : 84;
   return bake(key, Math.round(w * FIGSCALE) + 4, Math.round(h * FIGSCALE) + 4, (g, W, H) => {
@@ -354,7 +372,7 @@ export function unitSprite(defId, custom, frame) {
 const portraitCache = new Map();
 export function portraitURL(defId, custom, w = 76, h = 92) {
   const key = 'pu:' + defId + ':' + w + 'x' + h + ':' +
-    (custom ? [custom.cloth, custom.tabard, custom.helm, custom.weapon].join('|') : '-');
+    (custom ? [custom.cloth, custom.tabard, custom.helm, custom.weapon, custom.metal, custom.plume, custom.bulk].join('|') : '-');
   if (portraitCache.has(key)) return portraitCache.get(key);
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
@@ -387,7 +405,7 @@ export function portraitURL(defId, custom, w = 76, h = 92) {
 }
 
 // Live portrait for the creator -- not cached, it changes on every click.
-export function drawPortrait(g, W, H, spec, t) {
+export function drawPortrait(g, W, H, spec, t, swing) {
   g.clearRect(0, 0, W, H);
   // The figure is 78px tall as drawn; size it to the box rather than guessing.
   const s = Math.min(W / 96, (H - 46) / 84);
@@ -405,7 +423,11 @@ export function drawPortrait(g, W, H, spec, t) {
   g.fill();
   g.restore();
   g.save();
-  g.translate(W / 2, H - 20);
+  const sw = swing || 0;
+  const lungeX = Math.sin(sw * Math.PI) * 14;
+  const tilt = Math.sin(sw * Math.PI) * 0.10;
+  g.translate(W / 2 + lungeX, H - 20);
+  g.rotate(tilt);
   g.scale(s, s);
   g.translate(-34, -78);
   drawFigure(g, 68, 84, spec);
@@ -427,8 +449,14 @@ export const CUSTOM_OPTIONS = {
     { id: 'knife', label: 'Knives' },
     { id: 'staff', label: 'Staff' },
   ],
-  cloth: ['#5a4b3a', '#4b4a44', '#3f4a44', '#4a3f4a', '#54463c', '#33302f', '#3d5451', '#5f4d3c'],
-  tabard: ['#8c3a2e', '#7a2a30', '#8a6a20', '#3f6360', '#5a4a7a', '#6b7c4a', '#a8998a', ''],
+  cloth: ['#5a4b3a', '#4b4a44', '#3f4a44', '#4a3f4a', '#54463c', '#33302f', '#3d5451', '#5f4d3c',
+    '#6b4a2f', '#2f3a4a', '#5a3232', '#46523a'],
+  tabard: ['#8c3a2e', '#7a2a30', '#8a6a20', '#3f6360', '#5a4a7a', '#6b7c4a', '#a8998a', '',
+    '#b8862e', '#2e6b8c', '#7a4a8c', '#3a7a52'],
+  metal: ['#938c7e', '#7d848c', '#8c7d6a', '#6a7d7a', '#a89468', '#70707a'],
+  plume: [{ id: '', label: 'None' }, { id: '#a8412f', label: 'Red' }, { id: '#d8c9a3', label: 'White' },
+    { id: '#22201e', label: 'Black' }, { id: '#3f6360', label: 'Teal' }],
+  build: [{ id: 0.95, label: 'Lean' }, { id: 1.08, label: 'Standard' }, { id: 1.24, label: 'Broad' }],
 };
 
 // ------------------------------------------------------------------- tiles

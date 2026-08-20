@@ -549,6 +549,10 @@ export function moveUnit(st, u, tx, ty) {
 export function basicAttack(st, u, target) {
   if (u.usesLoad && !u.loaded) return { ok: false, why: 'not loaded' };
   if (u.usesLoad) st.fx.push({ kind: 'snd', s: 'bow' });
+  if (u.isCaptain && u.custom && u.custom.weapon) {
+    const ws = { maul: 'heavy', knife: 'pierce', staff: 'fire', shield: 'thunk', pole: 'sweep' }[u.custom.weapon];
+    if (ws) st.fx.push({ kind: 'snd', s: ws });
+  }
   if (u.range > 1 && Math.abs(u.x - target.x) + Math.abs(u.y - target.y) > 1) {
     st.fx.push({ kind: 'trace', x1: u.x, y1: u.y, x2: target.x, y2: target.y, col: '#d8c9a3', t: 0 });
   } else {
