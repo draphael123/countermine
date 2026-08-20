@@ -8,7 +8,7 @@ import * as R from './render.js';
 import { drawPortrait, CUSTOM_OPTIONS, FIGURES, portraitURL, PROP_NAMES } from './art.js';
 import { openCreator, closeCreator, makeCaptain, defaultCaptain, randomCaptain } from './creator.js';
 import { startTutorial, tickTutorial, tutorialActive, endTutorial, hideCoach } from './tutorial.js';
-import { play, unlockAudio, setSfxEnabled, startAmbience, stopAmbience, setMusicMode } from './sfx.js';
+import { play, unlockAudio, setSfxEnabled, startAmbience, stopAmbience, setMusicMode, setVolumes } from './sfx.js';
 
 // =========================================================== persistent meta
 const META_KEY = 'countermine_meta_v1';
@@ -19,9 +19,12 @@ const DEFAULT_META = () => ({
   classes: Object.keys(CLASSES).filter(k => !CLASSES[k].locked),
   relics: RELICS.filter(r => !r.locked).map(r => r.id),
   seenIntro: false, seenTutorial: false, lastCaptain: null,
+  seenFoes: [], foeKills: {},
 });
 const DEFAULT_SETTINGS = () => ({
   threatDefault: true, fastEnemy: false, confirmEnd: true, sound: true,
+  volMaster: 0.7, volMusic: 0.7, volSfx: 0.9,
+  reducedMotion: (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches),
   showForecast: true, screenShake: true, difficulty: 'regular',
 });
 
@@ -63,12 +66,17 @@ cv.width = R.CW; cv.height = R.CH;
 function fadeFlash() {
   const f = $('fader');
   if (!f) return;
+  // No rAF: it pauses in background tabs and left the overlay stuck dark.
+  // A forced reflow between the two writes starts the transition synchronously.
   f.style.transition = 'none';
   f.style.opacity = '0.9';
-  requestAnimationFrame(() => {
-    f.style.transition = 'opacity .30s ease-out';
-    f.style.opacity = '0';
-  });
+  void f.offsetWidth;
+  f.style.transition = 'opacity .30s ease-out';
+  f.style.opacity = '0';
+  // Transitions freeze in non-composited tabs; a stuck overlay is a black
+  // screen. The timeout is the guarantee, the transition is the garnish.
+  clearTimeout(fadeFlash.tk);
+  fadeFlash.tk = setTimeout(() => { f.style.transition = 'none'; f.style.opacity = '0'; }, 450);
 }
 
 // ================================================================== screens
@@ -216,6 +224,15 @@ function nodeType(rng, c, COLS) {
   return 'fight';
 }
 
+const NODE_TIPS = {
+  fight: 'A fight you can see coming. Gold from the bodies, and three survivors offer to join after.',
+  elite: 'A harder fight for better gold. Bring everyone healthy.',
+  camp: 'Rest. Choose ONE: heal everyone, drill one soldier (+6 max hp), or strip it for gold.',
+  cache: 'A relic cache: take one of three, or the coin instead. You carry five at most.',
+  vendor: 'The quartermaster sells relics, healing, and kit for gold. Gold dies with the run — spend it.',
+  boss: 'The floor’s master. There is no way around, only through.',
+};
+
 const NODE_ART = {
   fight: { label: 'Skirmish', glyph: '⚔', colour: '#a8998a' },
   elite: { label: 'Strongpoint', glyph: '☠', colour: '#c07050' },
@@ -317,6 +334,7 @@ function drawMap() {
     const x = colX(n.col), y = rowY(n.row);
     const op = n.done ? 0.34 : (can ? 1 : 0.42);
     s += '<g class="mapNode' + (can ? '' : ' dis') + '" data-id="' + n.id + '" opacity="' + op + '">';
+    s += '<title>' + art.label + ' — ' + (NODE_TIPS[n.type] || '') + '</title>';
     if (can) s += '<circle cx="' + x + '" cy="' + y + '" r="30" fill="none" stroke="' + art.colour + '" stroke-width="1" opacity="0.35" filter="url(#nglow)"/>';
     s += '<circle cx="' + x + '" cy="' + y + '" r="26" fill="url(#nbg)" stroke="' + (can ? art.colour : '#3a2f26') + '" stroke-width="' + (can ? 2.5 : 1.5) + '"/>';
     s += '<text x="' + x + '" y="' + (y + 7) + '" text-anchor="middle" font-size="21" fill="' + art.colour + '">' + art.glyph + '</text>';
@@ -362,6 +380,7 @@ function saveRun(pendingNodeId) {
       })),
       captainCfg: run.captain ? run.captain.cfg : null,
       map: run.map, fights: run.fights, kills: run.kills, losses: run.losses,
+      fallen: run.fallen || [],
       pendingNodeId: pendingNodeId || null,
       uidCounter,
     }));
@@ -386,6 +405,7 @@ function resumeRun() {
         ? Object.assign({}, p, { def: cap.def, custom: cap.custom }) : p),
       captain: cap, map: d.map,
       fights: d.fights, kills: d.kills, losses: d.losses,
+      fallen: d.fallen || [],
       cleared: 0, tutorial: false, nodeId: null,
     };
     uidCounter = Math.max(uidCounter, d.uidCounter || 1);
@@ -486,7 +506,7 @@ function startBattle(node) {
   if (kind === 'boss') banner(BOSSES[floor.boss].name, 1900, 'boss');
   else banner(NODE_ART[node.type].label.toUpperCase(), 1100);
   // the company files in from the stair on the left
-  st.units.filter(u => u.side === 'player').forEach((u, i) => {
+  if (!settings.reducedMotion) st.units.filter(u => u.side === 'player').forEach((u, i) => {
     E.animWalk(u, [{ x: -2 - i, y: u.y }, { x: u.x, y: u.y }]);
     u.anim.start = performance.now() + i * 150;
     u.anim.dur = 430 + i * 40;
@@ -502,6 +522,17 @@ function startBattle(node) {
       (completed) => { if (completed) banner('THE DIG BEGINS', 1400); }
     );
   }
+}
+
+// a light phase announcement that never blocks input
+function phaseSweep(text) {
+  const el = $('phaseSweep');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.remove('go');
+  void el.offsetWidth;   // restart the animation
+  if (settings.reducedMotion) { el.classList.add('still'); } else { el.classList.remove('still'); }
+  el.classList.add('go');
 }
 
 function banner(text, ms, style) {
@@ -532,8 +563,22 @@ cv.addEventListener('mousemove', (ev) => {
   // you nothing about which threat is the one to answer.
   const o = E.occupant(st, t.x, t.y);
   view.threatFocus = (o && o.side === 'enemy' && o.alive) ? E.threatMap(st, o) : null;
+  // the number moves to where your eyes are: a chip over the hovered target
+  view.forecast = null;
+  const sel = view.selected ? unitByUid(view.selected) : null;
+  if (sel && o && o.side === 'enemy' && o.alive && (mode === 'attack' || mode === 'ability')) {
+    const legal = (view.targetTiles || []).some(p => p.x === t.x && p.y === t.y);
+    if (legal) {
+      const ab = mode === 'ability' ? ABILITIES[armedAbility] : null;
+      if (!ab || ab.dmg) {
+        const prof = E.damageProfile(st, sel, o, ab ? { dmg: ab.dmg, pierce: ab.pierce } : {});
+        view.forecast = { x: t.x, y: t.y, min: prof.min, max: prof.max,
+          kill: prof.max >= o.hp, flank: prof.flanking };
+      }
+    }
+  }
 });
-cv.addEventListener('mouseleave', () => { view.hover = null; view.path = null; });
+cv.addEventListener('mouseleave', () => { view.hover = null; view.path = null; view.forecast = null; view.threatFocus = null; });
 cv.addEventListener('click', (ev) => { if (st) onBoardClick(canvasTile(ev)); });
 cv.addEventListener('contextmenu', (ev) => { ev.preventDefault(); cancelMode(); });
 
@@ -685,6 +730,7 @@ function endTurn() {
   E.endPlayerPhase(st);
   view.threat = null;
   enemyTimer = 0;
+  phaseSweep('ROUND ' + st.round + ' — THEIRS');
   syncUI();
 }
 
@@ -725,26 +771,32 @@ function syncUI() {
     hint.textContent = 'Click a soldier, then a lit tile, to set the line.';
     ab.appendChild(hint);
   } else if (u && u.alive && u.side === 'player') {
-    const mk = (label, sub, on, armed, fn) => {
+    const mk = (label, sub, on, armed, fn, preview) => {
       const b = document.createElement('button');
       b.className = 'abBtn' + (armed ? ' armed' : '');
       b.innerHTML = '<b>' + label + '</b>' + (sub ? '<span class="sub">' + sub + '</span>' : '');
       b.disabled = !on;
       if (on) b.addEventListener('click', fn);
+      if (preview) {
+        b.addEventListener('mouseenter', () => { view.hoverPreview = preview(); });
+        b.addEventListener('mouseleave', () => { view.hoverPreview = null; });
+      }
       ab.appendChild(b);
     };
     const acted = u.acted || st.phase !== 'player';
     const loadOk = !u.usesLoad || u.loaded || u.freeShot;
     mk('Attack [A]',
       'Range ' + (u.minRange > 1 ? u.minRange + '–' : '') + u.range + ' · ' + u.atk[0] + '–' + u.atk[1] + ' damage' + (loadOk ? '' : ' · NEEDS RELOADING'),
-      !acted && loadOk, mode === 'attack', armAttack);
+      !acted && loadOk, mode === 'attack', armAttack,
+      () => E.attackTargets(st, u).map(x => ({ x: x.x, y: x.y })));
     u.abilities.forEach((aid, i) => {
       const a = ABILITIES[aid];
       const cd = u.cds[aid] || 0;
       const ch = a.charges ? (u.charges[aid] || 0) : null;
       const sub = a.desc + (cd > 0 ? ' · ready in ' + cd : '') + (ch != null ? ' · ' + ch + ' left' : '');
       mk(a.name + ' [' + (i + 1) + ']', sub, !acted && E.abilityReady(u, aid),
-        armedAbility === aid, () => armAbility(aid));
+        armedAbility === aid, () => armAbility(aid),
+        () => E.abilityTargets(st, u, aid));
     });
     if (u.usesLoad) mk('Reload [R]', 'Spend the action winding the bow.', !acted && !u.loaded, false, () => { E.reload(st, u); afterAction(u); });
     if (u.moved && !u.acted) mk('Take it back [U]', 'Undo the move.', true, false, () => {
@@ -806,6 +858,22 @@ function updateInspect(t) {
 // ============================================================ battle result
 function endBattle() {
   const won = st.phase === 'won';
+  // the Ledger of Foes: every foe that took the field is now a known quantity,
+  // and every one that fell is another mark against its kind
+  for (const u of st.units.filter(x => x.side === 'enemy')) {
+    if (!meta.seenFoes.includes(u.defId)) meta.seenFoes.push(u.defId);
+    if (!u.alive) meta.foeKills[u.defId] = (meta.foeKills[u.defId] || 0) + 1;
+  }
+  saveMeta();
+  // per-soldier numbers for the battle report, captured before st is dropped
+  const report = {
+    rounds: st.round,
+    kind: pendingNode ? pendingNode.type : 'fight',
+    soldiers: st.units.filter(x => x.side === 'player').map(u => ({
+      name: u.name, defId: u.defId, custom: u.custom, alive: u.alive,
+      dealt: u.dmgDealt, taken: u.dmgTaken, kills: u.kills,
+    })),
+  };
   // write survivors back to the run
   const dead = [];
   for (const u of st.units.filter(x => x.side === 'player')) {
@@ -816,6 +884,11 @@ function endBattle() {
     m.kills += u.kills;
   }
   run.party = run.party.filter(p => !dead.includes(p));
+  // the epitaph needs the whole company, not just who is left
+  for (const d of dead) {
+    run.fallen = run.fallen || [];
+    run.fallen.push({ name: d.name, defId: d.defId, custom: d.custom, floor: run.floorIdx + 1 });
+  }
   run.losses += dead.length;
   run.kills += st.units.filter(u => u.side === 'enemy' && !u.alive).length;
 
@@ -830,7 +903,63 @@ function endBattle() {
   if (run.relics.includes('ironrations')) for (const p of run.party) p.hp = Math.min(p.maxHp, p.hp + 6);
   run.fights++;
 
-  screenAftermath(gold, dead);
+  screenBattleReport(report, gold, dead);
+}
+
+// A run should end with a RECORD: the company, its fates, what it carried.
+function renderEpitaph(banked, won) {
+  const box = $('mChoices');
+  box.innerHTML = '';
+  const roll = [];
+  for (const p of run.party) roll.push({ name: p.name, defId: p.defId, custom: p.custom, alive: won || false, kills: p.kills, note: won ? 'Walked back up' : 'Lost in the dark' });
+  for (const f of (run.fallen || [])) roll.push({ name: f.name, defId: f.defId, custom: f.custom, alive: false, kills: null, note: 'Fell on floor ' + f.floor });
+  for (const m2 of roll) {
+    const d = document.createElement('div');
+    d.className = 'choice locked';
+    d.style.opacity = m2.alive ? '1' : '.5';
+    d.innerHTML =
+      '<img class="cardP" src="' + portraitURL(m2.defId, m2.custom, 84, 100) + '" alt="">' +
+      '<h3>' + (m2.alive ? m2.name : '<s>' + m2.name + '</s>') + '</h3>' +
+      '<div class="role">' + m2.note + '</div>' +
+      (m2.kills != null ? '<div class="stats mono">' + m2.kills + ' kills</div>' : '');
+    box.appendChild(d);
+  }
+  const tal = document.createElement('div');
+  tal.className = 'choice locked';
+  tal.innerHTML = '<h3>+' + banked + ' tallies</h3><div class="role">Banked</div>' +
+    '<div class="stats mono">' + run.fights + ' battles · ' + run.kills + ' slain</div>' +
+    (run.relics.length ? '<div class="blurb">Carried: ' + run.relics.map(rid => (RELICS.find(x => x.id === rid) || {}).name).join(', ') + '</div>' : '<div class="blurb">Carried nothing but orders.</div>');
+  box.appendChild(tal);
+}
+
+// ---------------------------------------------------------- the battle report
+function screenBattleReport(report, gold, dead) {
+  showScreen('modal');
+  $('mEyebrow').textContent = 'After action — ' + report.rounds + ' round' + (report.rounds === 1 ? '' : 's');
+  $('mTitle').textContent = 'THE DUST SETTLES';
+  const mvp = report.soldiers.slice().sort((a, b) => b.dealt - a.dealt)[0];
+  $('mLede').textContent = mvp && mvp.dealt > 0
+    ? mvp.name + ' did the worst of it.'
+    : 'Nobody will sing about this one.';
+  const box = $('mChoices');
+  box.innerHTML = '';
+  for (const sRow of report.soldiers) {
+    const d = document.createElement('div');
+    d.className = 'choice locked';
+    d.style.opacity = sRow.alive ? '1' : '.45';
+    d.innerHTML =
+      '<img class="cardP" src="' + portraitURL(sRow.defId, sRow.custom, 84, 100) + '" alt="">' +
+      '<h3>' + (sRow.alive ? sRow.name : '<s>' + sRow.name + '</s>') + (mvp === sRow && sRow.dealt > 0 ? '<span class="costTag">⚔ most damage</span>' : '') + '</h3>' +
+      '<div class="role">' + (sRow.alive ? 'Stood their ground' : 'Fell here') + '</div>' +
+      '<div class="stats mono">dealt ' + sRow.dealt + ' · took ' + sRow.taken + ' · slew ' + sRow.kills + '</div>';
+    box.appendChild(d);
+  }
+  $('mFoot').innerHTML = '';
+  const go = document.createElement('button');
+  go.className = 'primary';
+  go.textContent = 'See who’s willing (+' + gold + ' gold)';
+  go.addEventListener('click', () => screenAftermath(gold, dead));
+  $('mFoot').appendChild(go);
 }
 
 let aftermath = null; // survives Never Mind round-trips
@@ -1112,9 +1241,7 @@ function runLost(dead) {
   $('mTitle').textContent = 'THE COMPANY IS GONE';
   $('mLede').textContent = 'Floor ' + (run.floorIdx + 1) + '. ' + run.kills + ' of theirs, ' + run.losses + ' of yours. '
     + 'Somebody will scratch the tally on the wall by the stair.';
-  const box = $('mChoices');
-  box.innerHTML = '<div class="choice locked"><h3>+' + banked + ' tallies</h3><div class="role">Banked</div>'
-    + '<div class="blurb">Spend them on the Muster Roll. The next company goes down better equipped than this one did.</div></div>';
+  renderEpitaph(banked, false);
   $('mFoot').innerHTML = '';
   const again = document.createElement('button');
   again.textContent = 'Send another company';
@@ -1139,8 +1266,7 @@ function runWon() {
   $('mTitle').textContent = 'THE COUNTERMINE ENDS';
   $('mLede').textContent = 'It ends in a room neither army dug, and the digging stops. '
     + run.party.map(p => p.name).join(', ') + ' walk back up.';
-  $('mChoices').innerHTML = '<div class="choice locked"><h3>+' + banked + ' tallies</h3><div class="role">Banked</div>'
-    + '<div class="blurb">You are the first company to come back up in eleven years.</div></div>';
+  renderEpitaph(banked, true);
   $('mFoot').innerHTML = '';
   const again = document.createElement('button');
   again.textContent = 'Go down again';
@@ -1210,6 +1336,50 @@ function screenMuster() {
   render();
 }
 
+// ============================================================ ledger of foes
+// Only the foes you have MET are legible; the rest are shapes in the dark.
+function screenGlossary(backTo) {
+  showScreen('modal');
+  $('mEyebrow').textContent = 'What the dark has shown you so far';
+  $('mTitle').textContent = 'THE LEDGER OF FOES';
+  const seen = meta.seenFoes || [];
+  const all = Object.keys(ENEMIES).concat(Object.keys(BOSSES));
+  $('mLede').textContent = seen.length + ' of ' + all.length + ' catalogued. Meet the rest to read them.';
+  const box = $('mChoices');
+  box.innerHTML = '';
+  for (const id of all) {
+    const def = ENEMIES[id] || BOSSES[id];
+    const met = seen.includes(id);
+    const d = document.createElement('div');
+    d.className = 'choice locked';
+    if (!met) {
+      d.style.opacity = '.38';
+      d.innerHTML = '<h3>???</h3><div class="role">' + (def.boss ? 'Something larger' : 'Not yet met') + '</div>'
+        + '<div class="blurb">The survivors who described it did not describe it well.</div>';
+    } else {
+      const kills = (meta.foeKills || {})[id] || 0;
+      d.innerHTML =
+        '<img class="cardP" src="' + portraitURL(id, null, 84, 100) + '" alt="">' +
+        '<h3>' + def.name + '</h3>' +
+        '<div class="role">' + (def.boss ? 'Master of a floor' : 'Threat ' + def.threat) + (kills ? ' · slain ×' + kills : '') + '</div>' +
+        '<div class="stats mono">' + def.hp + ' hp · ' + def.armor + ' armour · ' + def.mov + ' move · hits ' + def.atk[0] + '–' + def.atk[1]
+        + ' at range ' + (def.minRange > 1 ? def.minRange + '–' : '') + def.range + '</div>' +
+        def.abilities.map(a => '<div class="abLine"><b>' + ABILITIES[a].name + '</b> — ' + ABILITIES[a].desc + '</div>').join('') +
+        '<div class="blurb" style="margin-top:8px">' + def.blurb + '</div>';
+    }
+    box.appendChild(d);
+  }
+  $('mFoot').innerHTML = '';
+  const back = document.createElement('button');
+  back.textContent = 'Back';
+  back.addEventListener('click', backTo || goTitle);
+  $('mFoot').appendChild(back);
+  const hint = document.createElement('div');
+  hint.className = 'hint';
+  hint.textContent = 'Wind-up attacks always mark their tiles a turn ahead. The ledger does not lie; neither do they.';
+  $('mFoot').appendChild(hint);
+}
+
 // ================================================================== settings
 function screenSettings() {
   showScreen('modal');
@@ -1250,8 +1420,37 @@ function screenSettings() {
       settings.sound !== false, () => {
         settings.sound = settings.sound === false;
         setSfxEnabled(settings.sound !== false);
+document.addEventListener('pointerdown', () => setVolumes(settings.volMaster, settings.volMusic, settings.volSfx), { once: true });
         if (settings.sound === false) stopAmbience();
       });
+    // volume sliders live in their own card; sliders don't cycle like toggles
+    {
+      const d = document.createElement('div');
+      d.className = 'choice locked';
+      d.style.cursor = 'default';
+      d.innerHTML = '<h3>Volume</h3><div class="role">Master · Music · Effects</div>';
+      const mkSlider = (label, key) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:9px;margin-top:8px';
+        row.innerHTML = '<span style="width:58px;font-size:11px;color:var(--ink-dim)">' + label + '</span>';
+        const inp = document.createElement('input');
+        inp.type = 'range'; inp.min = 0; inp.max = 100; inp.value = Math.round((settings[key] != null ? settings[key] : 0.8) * 100);
+        inp.style.cssText = 'flex:1 1 auto;accent-color:#c2703a';
+        inp.addEventListener('input', () => {
+          settings[key] = inp.value / 100;
+          setVolumes(settings.volMaster, settings.volMusic, settings.volSfx);
+          saveSettings();
+        });
+        row.appendChild(inp);
+        d.appendChild(row);
+      };
+      mkSlider('Master', 'volMaster');
+      mkSlider('Music', 'volMusic');
+      mkSlider('Effects', 'volSfx');
+      box.appendChild(d);
+    }
+    card('Reduced motion', 'Stillness where possible', 'Stops the screen shake, haze, embers, entrance marches, and the moving map routes. The game plays identically.',
+      !!settings.reducedMotion, () => { settings.reducedMotion = !settings.reducedMotion; applyMotionClass(); });
     card('Screen shake', 'Hits rattle the board', 'A slap of movement on big hits, deaths, and powder. Turn it off if it bothers your eyes.',
       settings.screenShake !== false, () => settings.screenShake = settings.screenShake === false);
     card('Confirm end of turn', 'Ask if someone has not moved', 'Stops you ending the round with a soldier still standing there doing nothing.',
@@ -1390,6 +1589,16 @@ function toggleThreat() {
 // ================================================================== buttons
 $('btnStart').addEventListener('click', () => { if (meta.seenIntro) screenCreator(); else screenIntro(0); });
 $('btnSettings').addEventListener('click', screenSettings);
+(function addGlossaryButtons() {
+  const t = document.createElement('button');
+  t.textContent = 'Ledger of Foes';
+  t.addEventListener('click', () => screenGlossary(goTitle));
+  $('btnSettings').before(t);
+  const m = document.createElement('button');
+  m.textContent = 'Foes';
+  m.addEventListener('click', () => screenGlossary(openMap));
+  $('btnAbandon').before(m);
+})();
 $('menuBtn').addEventListener('click', screenSettings);
 $('btnMuster').addEventListener('click', screenMuster);
 $('threatBtn').addEventListener('click', toggleThreat);
@@ -1408,6 +1617,9 @@ $('btnAbandon').addEventListener('click', () => {
 
 // The stage is a fixed 1290x620 so the board never reflows mid-battle; scale
 // the whole thing to whatever window it lands in.
+function applyMotionClass() { document.body.classList.toggle('reduced-motion', !!settings.reducedMotion); }
+applyMotionClass();
+
 function fitStage() {
   const s = Math.min(1, (window.innerWidth - 24) / 1290, (window.innerHeight - 24) / 620);
   $('stage').style.transform = 'scale(' + s.toFixed(4) + ')';
@@ -1422,6 +1634,7 @@ const embers = [];
 function drawTitleFx(dt) {
   const cvx = $('titleFx');
   if (!cvx) return;
+  if (settings.reducedMotion) { cvx.getContext('2d').clearRect(0, 0, cvx.width, cvx.height); return; }
   const g2 = cvx.getContext('2d');
   g2.clearRect(0, 0, cvx.width, cvx.height);
   if (embers.length < 46 && Math.random() < 0.3) {
@@ -1467,7 +1680,7 @@ function step(dt) {
       if (!more) {
         if (settings.threatDefault) view.threat = E.threatMap(st);
         const first = st.units.find(u => u.alive && u.side === 'player');
-        if (first && st.phase === 'player') select(first.uid);
+        if (first && st.phase === 'player') { select(first.uid); phaseSweep('ROUND ' + st.round + ' — YOURS'); }
       }
       syncUI();
       if (st.phase === 'won' || st.phase === 'lost') {
@@ -1513,7 +1726,8 @@ function step(dt) {
       }
     }
   }
-  view.shakeEnabled = settings.screenShake !== false;
+  view.shakeEnabled = settings.screenShake !== false && !settings.reducedMotion;
+  view.reducedMotion = !!settings.reducedMotion;
   R.draw(ctx, st, view);
   tickTutorial();
 }

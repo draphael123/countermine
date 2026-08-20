@@ -818,6 +818,7 @@ export function resolveAbility(st, u, aid, ab, tx, ty, dir) {
 // ------------------------------------------------------------ phase plumbing
 export function startPlayerPhase(st) {
   st.phase = 'player';
+  st.actingUid = null;
   for (const u of st.units) {
     if (!u.alive || u.side !== 'player') continue;
     u.acted = false; u.moved = false; u.startX = u.x; u.startY = u.y;
@@ -855,6 +856,7 @@ export function enemyActOne(st) {
     const uid = st.enemyQueue.shift();
     const u = st.units.find(x => x.uid === uid);
     if (!u || !u.alive) continue;
+    st.actingUid = u.uid;
     aiTakeTurn(st, u);
     checkOver(st);
     return true;

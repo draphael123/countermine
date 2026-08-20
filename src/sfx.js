@@ -13,6 +13,7 @@
 
 let ctx = null;
 let master = null, sfxIn = null, ambBus = null, musicBus = null;
+let sfxVol = null, musicVol = null;
 let enabled = true;
 let ambienceNodes = null;
 
@@ -23,19 +24,23 @@ function ac() {
     master.gain.value = 0.5;
     master.connect(ctx.destination);
 
+    // volume stages first -- everything else connects INTO them
+    sfxVol = ctx.createGain(); sfxVol.gain.value = 0.9; sfxVol.connect(master);
+    musicVol = ctx.createGain(); musicVol.gain.value = 0.75; musicVol.connect(master);
+
     // sfx: dry path + generated cave reverb
     sfxIn = ctx.createGain();
     const dry = ctx.createGain();
     dry.gain.value = 0.85;
-    sfxIn.connect(dry); dry.connect(master);
+    sfxIn.connect(dry); dry.connect(sfxVol);
     const conv = ctx.createConvolver();
     conv.buffer = impulse(1.7, 2.6);
     const wet = ctx.createGain();
     wet.gain.value = 0.22;
-    sfxIn.connect(conv); conv.connect(wet); wet.connect(master);
+    sfxIn.connect(conv); conv.connect(wet); wet.connect(sfxVol);
 
-    ambBus = ctx.createGain(); ambBus.gain.value = 1; ambBus.connect(master);
-    musicBus = ctx.createGain(); musicBus.gain.value = 1; musicBus.connect(master);
+    ambBus = ctx.createGain(); ambBus.gain.value = 1; ambBus.connect(sfxVol);
+    musicBus = ctx.createGain(); musicBus.gain.value = 1; musicBus.connect(musicVol);
   }
   if (ctx.state === 'suspended') ctx.resume();
   return ctx;
@@ -62,6 +67,17 @@ export function setSfxEnabled(on) {
 
 // Must be called from a user gesture once; browsers refuse audio before that.
 export function unlockAudio() { try { ac(); } catch (e) {} }
+
+// Volume stages sit apart from the ducking ramps, so sliders and ducking
+// never fight over the same gain node.
+export function setVolumes(m, mu, s) {
+  try {
+    ac();
+    if (m != null) master.gain.value = 0.9 * Math.max(0, Math.min(1, m));
+    if (mu != null) musicVol.gain.value = 0.9 * Math.max(0, Math.min(1, mu));
+    if (s != null) sfxVol.gain.value = Math.max(0, Math.min(1, s));
+  } catch (e) {}
+}
 
 // ------------------------------------------------------------ building blocks
 // Library generators connect into currentOut (a per-play() panner chain).

@@ -138,6 +138,21 @@ canvas { display: block; border: 1px solid var(--rule); background: #0a0908; }
   letter-spacing: .3em; font-size: 40px;
 }
 #mapSvg line.march { animation: dashmove 1.1s linear infinite; }
+body.reduced-motion #mapSvg line.march { animation: none; }
+#phaseSweep {
+  position: absolute; top: 40%; left: 0; right: 0; text-align: center;
+  font-size: 26px; letter-spacing: .42em; color: var(--bone); pointer-events: none;
+  opacity: 0; text-shadow: 0 2px 12px #000;
+}
+#phaseSweep.go { animation: sweepIn 1.15s ease-out forwards; }
+#phaseSweep.still.go { animation: fadeInOut 1.15s ease-out forwards; }
+@keyframes sweepIn {
+  0% { opacity: 0; transform: translateX(-26px); }
+  18% { opacity: .95; transform: translateX(0); }
+  70% { opacity: .95; }
+  100% { opacity: 0; transform: translateX(14px); }
+}
+@keyframes fadeInOut { 0% {opacity:0} 20% {opacity:.9} 75% {opacity:.9} 100% {opacity:0} }
 @keyframes dashmove { to { stroke-dashoffset: -22; } }
 .pimg.hurt { filter: brightness(.72) sepia(.45) hue-rotate(-28deg) saturate(1.7); }
 #banner div {
@@ -367,6 +382,7 @@ input[type=text]:focus { outline: none; border-color: var(--torch); }
       <div id="floorTag"></div>
       <div id="phaseTag"></div>
       <div id="banner"><div></div></div>
+      <div id="phaseSweep"></div>
     </div>
     <div id="side">
       <div class="panel">

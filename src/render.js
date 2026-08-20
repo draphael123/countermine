@@ -15,6 +15,60 @@ export function pxToTile(px, py) {
 
 const now = () => performance.now();
 
+// per-floor atmosphere particles: drips (floor 2), rising embers (floor 3)
+const parts = [];
+function drawFloorParticles(ctx, floorN, t) {
+  if (floorN === 2) {
+    if (parts.length < 5 && Math.random() < 0.02) {
+      parts.push({ kind: 'drip', x: 40 + Math.random() * (CW - 80), y: 0, v: 5 + Math.random() * 3, t: 0 });
+    }
+  } else if (floorN === 3) {
+    if (parts.length < 22 && Math.random() < 0.25) {
+      parts.push({ kind: 'ember', x: 20 + Math.random() * (CW - 40), y: CH + 4,
+        v: 0.5 + Math.random() * 0.9, drift: Math.random() * 6.28, t: 0, dur: 260 + Math.random() * 200 });
+    }
+  }
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    p.t++;
+    if (p.kind === 'drip') {
+      p.y += p.v * 3;
+      if (p.y >= CH - 30) {
+        // splash ring, then gone
+        ctx.save();
+        ctx.globalAlpha = 0.35;
+        ctx.strokeStyle = '#9cc4c0';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.ellipse(p.x, CH - 28, (p.y - (CH - 30)) + 3, 2.5, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+        if (p.y > CH - 12) parts.splice(i, 1);
+      } else {
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle = '#bcd8d4';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y - 7);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+        ctx.restore();
+      }
+    } else {
+      p.y -= p.v;
+      p.x += Math.sin(p.t / 40 + p.drift) * 0.4;
+      const life = p.t / p.dur;
+      if (life >= 1 || p.y < -4) { parts.splice(i, 1); continue; }
+      ctx.save();
+      ctx.globalAlpha = 0.55 * (life < 0.1 ? life * 10 : 1 - life);
+      ctx.fillStyle = life > 0.55 ? '#8a4f22' : '#e0904a';
+      ctx.fillRect(p.x, p.y, 1.8, 1.8);
+      ctx.restore();
+    }
+  }
+}
+
 // one soft blob sheet, tiled and scrolled two ways for depth
 let hazeCv = null;
 function hazeSheet() {
@@ -267,6 +321,19 @@ export function draw(ctx, st, view) {
     }
     ctx.restore();
   }
+  if (view.hoverPreview) {
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = '#c9a86a';
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([4, 4]);
+    for (const m of view.hoverPreview) {
+      const { px, py } = tileToPx(m.x, m.y);
+      ctx.strokeRect(px + 3, py + 3, TILE - 6, TILE - 6);
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
   if (view.targetTiles) {
     const pulse = 0.30 + Math.sin(t / 260) * 0.09;
     ctx.save();
@@ -374,7 +441,7 @@ export function draw(ctx, st, view) {
   drawFx(ctx, st);
 
   // ---- the Breach is open to the sky somewhere: one shaft of day, floor 1 only
-  if (view.floorN === 1) {
+  if (view.floorN === 1 && !view.reducedMotion) {
     const sx0 = CW * 0.60, wTop = 54, lean = 90;
     ctx.save();
     const lg = ctx.createLinearGradient(sx0 + lean * 0.5, 0, sx0 + lean * 0.5 + 40, CH);
@@ -402,6 +469,7 @@ export function draw(ctx, st, view) {
   }
 
   // ---- underground air: two sheets of haze drifting at different speeds
+  if (!view.reducedMotion) {
   const hz = hazeSheet();
   ctx.save();
   ctx.globalAlpha = 0.05;
@@ -411,6 +479,10 @@ export function draw(ctx, st, view) {
     ctx.drawImage(hz, hx * hz.width - off2, CH * 0.4);
   }
   ctx.restore();
+  }
+
+  // ---- floor atmospheres: drips in the Sump, rising embers in the Countermine
+  if (!view.reducedMotion) drawFloorParticles(ctx, view.floorN, t);
 
   // ---- vignette. It is a dungeon; the edges should not be as lit as the
   // middle -- but the corners still have to be legible tiles, not mud.
@@ -419,6 +491,82 @@ export function draw(ctx, st, view) {
   vg.addColorStop(1, 'rgba(0,0,0,0.38)');
   ctx.fillStyle = vg;
   ctx.fillRect(0, 0, CW, CH);
+
+  // ---- boss bar: the floor's master gets a real bar with a name
+  const boss = st.units.find(u => u.alive && u.boss);
+  if (boss) {
+    const bw = CW * 0.44, bx = CW / 2 - bw / 2, by = 10;
+    if (boss.hpShown == null) boss.hpShown = boss.hp;
+    ctx.save();
+    ctx.font = '11px "Iowan Old Style", Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#c8a898';
+    ctx.fillText(boss.name.toUpperCase(), CW / 2, by - 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillRect(bx - 1, by + 2, bw + 2, 9);
+    const bfrac = Math.max(0, boss.hp / boss.maxHp);
+    const bghost = Math.max(0, boss.hpShown / boss.maxHp);
+    if (bghost > bfrac) {
+      ctx.fillStyle = 'rgba(232,164,140,0.8)';
+      ctx.fillRect(bx + bw * bfrac, by + 3, bw * (bghost - bfrac), 7);
+    }
+    const bg2 = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+    bg2.addColorStop(0, '#7a2f24');
+    bg2.addColorStop(1, '#a8412f');
+    ctx.fillStyle = bg2;
+    ctx.fillRect(bx, by + 3, bw * bfrac, 7);
+    ctx.strokeStyle = '#3a2a22';
+    ctx.strokeRect(bx - 1.5, by + 1.5, bw + 3, 10);
+    ctx.restore();
+  }
+
+  // ---- the enemy currently taking its turn
+  if (st.phase === 'enemy' && st.actingUid) {
+    const au = st.units.find(u => u.uid === st.actingUid && u.alive);
+    if (au) {
+      const { px, py } = drawPos(au, t);
+      const bob = Math.sin(t / 130) * 3;
+      ctx.save();
+      ctx.fillStyle = '#e8b5a0';
+      ctx.beginPath();
+      ctx.moveTo(px + TILE / 2 - 7, py - (au.boss ? 52 : 36) + bob);
+      ctx.lineTo(px + TILE / 2 + 7, py - (au.boss ? 52 : 36) + bob);
+      ctx.lineTo(px + TILE / 2, py - (au.boss ? 44 : 28) + bob);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // ---- damage forecast chip over the hovered target
+  if (view.forecast) {
+    const fc = view.forecast;
+    const { px, py } = tileToPx(fc.x, fc.y);
+    const label = fc.min + '–' + fc.max + (fc.flank ? ' +flank' : '');
+    ctx.save();
+    ctx.font = 'bold 12px "Courier New", monospace';
+    const wLabel = ctx.measureText(label).width + (fc.kill ? 26 : 14);
+    const chipX = Math.max(2, Math.min(CW - wLabel - 2, px + TILE / 2 - wLabel / 2));
+    const chipY = Math.max(2, py - 26);
+    ctx.fillStyle = 'rgba(12,9,7,0.92)';
+    ctx.fillRect(chipX, chipY, wLabel, 18);
+    ctx.strokeStyle = fc.kill ? '#a8412f' : '#6b5741';
+    ctx.strokeRect(chipX + 0.5, chipY + 0.5, wLabel - 1, 17);
+    ctx.fillStyle = fc.kill ? '#e8a08a' : '#e8d9bc';
+    ctx.textAlign = 'left';
+    ctx.fillText(label, chipX + 7, chipY + 13);
+    if (fc.kill) {
+      // a small skull: circle + jaw + eyes
+      const sx2 = chipX + wLabel - 13, sy2 = chipY + 8;
+      ctx.fillStyle = '#e8d9bc';
+      ctx.beginPath(); ctx.arc(sx2, sy2, 4.4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillRect(sx2 - 3, sy2 + 2, 6, 3);
+      ctx.fillStyle = '#12100c';
+      ctx.fillRect(sx2 - 2.6, sy2 - 1.4, 1.8, 2);
+      ctx.fillRect(sx2 + 0.8, sy2 - 1.4, 1.8, 2);
+    }
+    ctx.restore();
+  }
 
   // ---- hover cursor
   if (view.hover && view.hover.x >= 0 && view.hover.y >= 0 && view.hover.x < GW && view.hover.y < GH) {
@@ -599,8 +747,10 @@ function drawUnit(ctx, st, u, view, t) {
     ctx.restore();
   }
 
-  // health bar with damage ghosting: the pale chunk is what the last hit took
-  const barW = u.boss ? 44 : 30;
+  // health bar with damage ghosting: the pale chunk is what the last hit took.
+  // Bosses use the big named bar at the canvas top instead.
+  if (u.boss) { drawStatusPips(ctx, st, u, cx - 22, cy - 74); return; }
+  const barW = 30;
   const bx = cx - barW / 2, by = cy - (u.boss ? 78 : 60);
   ctx.fillStyle = 'rgba(0,0,0,0.75)';
   ctx.fillRect(bx - 1, by - 1, barW + 2, 6);
@@ -623,7 +773,10 @@ function drawUnit(ctx, st, u, view, t) {
     ctx.fillRect(bx + barW + 2, by, 3, 4);
   }
 
-  // status pips
+  drawStatusPips(ctx, st, u, bx, by - 6);
+}
+
+function drawStatusPips(ctx, st, u, bx, byTop) {
   const pips = [];
   if (hasStatus(u, 'rallied')) pips.push('#e0a83c');
   if (hasStatus(u, 'guarded')) pips.push('#7fb0d0');
@@ -635,24 +788,24 @@ function drawUnit(ctx, st, u, view, t) {
   if (hasStatus(u, 'taunting')) pips.push('#d4823c');
   pips.forEach((c, i) => {
     ctx.fillStyle = c;
-    ctx.fillRect(bx + i * 5, by - 6, 4, 4);
+    ctx.fillRect(bx + i * 5, byTop, 4, 4);
   });
 
   // wind-up marker over the caster
   if (u.windup) {
     ctx.save();
-    ctx.globalAlpha = 0.7 + Math.sin(t / 150) * 0.3;
+    ctx.globalAlpha = 0.7 + Math.sin(performance.now() / 150) * 0.3;
     ctx.fillStyle = '#e8452f';
     ctx.font = 'bold 15px "Courier New", monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('!', cx, by - 9);
+    ctx.fillText('!', bx + 15, byTop - 5);
     ctx.restore();
   }
 
   // crossbow load state
   if (u.usesLoad) {
     ctx.fillStyle = (u.loaded || u.freeShot) ? '#cbb27a' : '#4a4038';
-    ctx.fillRect(bx + barW - 8, by - 6, 8, 3);
+    ctx.fillRect(bx + 24, byTop, 8, 3);
   }
 }
 
