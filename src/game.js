@@ -54,6 +54,7 @@ cv.width = R.CW; cv.height = R.CH;
 // ================================================================== screens
 const SCREENS = ['title', 'mapScreen', 'modal'];
 function showScreen(id) {
+  $('modal').classList.remove('intro');
   for (const s of SCREENS) $(s).classList.toggle('on', s === id);
   $('battle').classList.toggle('on', id === 'battle');
 }
@@ -1037,10 +1038,11 @@ const INTRO = [
 
 function screenIntro(idx) {
   showScreen('modal');
+  $('modal').classList.add('intro');
   const page = INTRO[idx];
   $('mTitle').textContent = page.h;
   $('mLede').textContent = '';
-  $('mChoices').innerHTML = '<div class="choice locked" style="max-width:760px;flex:1 1 100%">'
+  $('mChoices').innerHTML = '<div class="choice locked" style="grid-column:1/-1;max-width:820px">'
     + '<div class="blurb" style="font-size:15px;line-height:1.75;font-style:normal;color:#bcae99">' + page.p + '</div></div>';
   $('mFoot').innerHTML = '';
   const next = document.createElement('button');

@@ -99,11 +99,27 @@
   }
   .screen.on { display: flex; }
   .screen h2 { font-size: 22px; letter-spacing: .24em; margin-bottom: 2px; }
+
+  /* intro pages: one thought at a time, centred, with room around it */
+  #modal.intro { justify-content: center; padding: 0 12%; }
+  #modal.intro h2 { font-size: 15px; letter-spacing: .42em; color: var(--torch); margin-bottom: 26px; }
+  #modal.intro .choice {
+    border: none; background: none; padding: 0; cursor: default;
+    border-left: 2px solid var(--line); padding-left: 26px;
+  }
+  #modal.intro .choice:hover { transform: none; border-color: var(--line); }
+  #modal.intro .blurb { font-size: 19px !important; line-height: 1.85 !important; color: #c6b9a4 !important; }
+  #modal.intro .foot { margin-top: 46px; }
   .screen .lede { color: var(--dim); font-size: 13px; margin-bottom: 16px; font-style: italic; }
 
-  .choices { display: flex; gap: 12px; flex-wrap: wrap; }
+  /* Grid, not flex: `flex: 1 1 260px` on five cards overran the fixed-width
+     stage and clipped the last one off the right edge. */
+  .choices {
+    display: grid; gap: 12px; align-content: start;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  }
   .choice {
-    flex: 1 1 260px; max-width: 340px; background: var(--panel); border: 1px solid var(--line);
+    background: var(--panel); border: 1px solid var(--line);
     padding: 14px; cursor: pointer; transition: border-color .12s, transform .12s, background .12s;
   }
   .choice:hover { border-color: var(--gold); background: #1e1812; transform: translateY(-2px); }

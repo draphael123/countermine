@@ -4,7 +4,11 @@ A dark-fantasy tactics roguelike. Two armies broke into the under-levels of a
 fortress eleven years ago and neither came back out. You take a Serjeant and one
 volunteer down after them, and recruit whoever is still standing.
 
-**Play:** https://countermine.vercel.app *(after the first deploy)*
+**Play:** https://countermine.vercel.app
+
+> The Vercel project currently has team SSO deployment protection on, so the URL
+> redirects to a Vercel login. Turn it off at Project -> Settings -> Deployment
+> Protection -> Vercel Authentication -> Disabled to make it public.
 
 ## The shape of it
 
