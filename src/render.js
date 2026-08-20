@@ -605,7 +605,7 @@ export function draw(ctx, st, view) {
   if (view.forecast) {
     const fc = view.forecast;
     const { px, py } = tileToPx(fc.x, fc.y);
-    const label = fc.min + '–' + fc.max + (fc.flank ? ' +flank' : '');
+    const label = fc.min + '–' + fc.max + (fc.flank ? ' +flank' : '') + (fc.confirm ? ' · tap to strike' : '');
     ctx.save();
     ctx.font = 'bold 12px "Courier New", monospace';
     const wLabel = ctx.measureText(label).width + (fc.kill ? 26 : 14);

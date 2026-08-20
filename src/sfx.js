@@ -128,21 +128,36 @@ const jitter = (v, amt) => v * (1 + (Math.random() * 2 - 1) * amt);
 // ------------------------------------------------------------------- library
 const LIB = {
   hit(t) {
-    tone(t, 0.11, 0.5, 'sine', jitter(150, 0.15), 55);
-    noise(t, 0.09, 0.30, 'bandpass', jitter(900, 0.2), 1.2);
+    const v = (Math.random() * 3) | 0;
+    if (v === 0) {
+      tone(t, 0.11, 0.5, 'sine', jitter(150, 0.15), 55);
+      noise(t, 0.09, 0.30, 'bandpass', jitter(900, 0.2), 1.2);
+    } else if (v === 1) {  // scrape into the thud
+      noise(t, 0.05, 0.18, 'highpass', jitter(2000, 0.2), 1.4);
+      tone(t + 0.015, 0.12, 0.48, 'sine', jitter(135, 0.12), 50);
+      noise(t + 0.015, 0.08, 0.24, 'bandpass', jitter(700, 0.2), 1.1);
+    } else {               // double contact
+      tone(t, 0.07, 0.36, 'sine', jitter(170, 0.12), 70);
+      tone(t + 0.05, 0.10, 0.42, 'sine', jitter(140, 0.12), 52);
+      noise(t + 0.05, 0.07, 0.26, 'bandpass', jitter(1000, 0.25), 1.3);
+    }
   },
   heavy(t) {
-    tone(t, 0.22, 0.65, 'sine', jitter(110, 0.1), 38);
-    noise(t, 0.16, 0.35, 'lowpass', 500, 0.7);
-    noise(t + 0.01, 0.07, 0.2, 'bandpass', 1600, 2);
+    const v = (Math.random() * 2) | 0;
+    tone(t, 0.22, 0.65, 'sine', jitter(110, 0.12), v ? 34 : 42);
+    noise(t, 0.16, 0.35, 'lowpass', v ? 420 : 560, 0.7);
+    noise(t + 0.01, 0.07, 0.2, 'bandpass', jitter(1600, 0.25), 2);
+    if (v) tone(t + 0.09, 0.14, 0.2, 'sine', 70, 36);   // after-shudder
   },
   pierce(t) {
     noise(t, 0.07, 0.34, 'highpass', jitter(2400, 0.2), 1.5);
     tone(t, 0.09, 0.4, 'sine', jitter(220, 0.1), 70);
   },
   death(t) {
-    tone(t, 0.5, 0.4, 'sawtooth', jitter(160, 0.15), 40, 0.02);
-    noise(t + 0.03, 0.4, 0.24, 'lowpass', 350, 0.6);
+    const v = (Math.random() * 2) | 0;
+    tone(t, v ? 0.42 : 0.55, 0.4, 'sawtooth', jitter(v ? 190 : 150, 0.15), v ? 50 : 36, 0.02);
+    noise(t + 0.03, 0.4, 0.24, 'lowpass', jitter(350, 0.2), 0.6);
+    if (v) noise(t + 0.2, 0.18, 0.12, 'lowpass', 240, 0.7);  // the slump
   },
   step(t, o) {
     if (o && o.surface === 'mud') {
@@ -324,8 +339,20 @@ export function stopAmbience() {
 let music = null;
 let musicMode = 'off';
 
-const BAR = 3.8;                       // seconds per bar
-const ROOTS = [55, 41.2, 65.4, 49];    // A1, E1, C2, G1 -- a slow minor wander
+let BAR = 3.8;                         // seconds per bar (floor can slow it)
+let ROOTS = [55, 41.2, 65.4, 49];      // A1, E1, C2, G1 -- a slow minor wander
+// each floor owns a progression and a pace
+const FLOOR_MUSIC = {
+  1: { roots: [55, 41.2, 65.4, 49], bar: 3.8 },        // the Breach: A minor wander
+  2: { roots: [49, 36.7, 58.3, 43.7], bar: 4.6 },      // the Sump: lower, slower
+  3: { roots: [61.7, 46.2, 73.4, 55], bar: 3.2 },      // the Countermine: tighter, urgent
+};
+export function setMusicFloor(n) {
+  const f = FLOOR_MUSIC[n] || FLOOR_MUSIC[1];
+  ROOTS = f.roots;
+  BAR = f.bar;
+  if (music) { clearInterval(music.timer); music.timer = setInterval(scheduleBar, BAR * 1000); }
+}
 
 function ensureMusic() {
   ac();

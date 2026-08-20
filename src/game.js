@@ -8,7 +8,7 @@ import * as R from './render.js';
 import { drawPortrait, CUSTOM_OPTIONS, FIGURES, portraitURL, PROP_NAMES, introScene, titleSkyline } from './art.js';
 import { openCreator, closeCreator, makeCaptain, defaultCaptain, randomCaptain } from './creator.js';
 import { startTutorial, tickTutorial, tutorialActive, endTutorial, hideCoach } from './tutorial.js';
-import { play, unlockAudio, setSfxEnabled, startAmbience, stopAmbience, setMusicMode, setVolumes } from './sfx.js';
+import { play, unlockAudio, setSfxEnabled, startAmbience, stopAmbience, setMusicMode, setVolumes, setMusicFloor } from './sfx.js';
 
 // =========================================================== persistent meta
 const META_KEY = 'countermine_meta_v1';
@@ -56,6 +56,10 @@ let mode = 'idle';          // idle | move | attack | ability | dir
 let armedAbility = null;
 let enemyTimer = 0;
 let uidCounter = 1;
+// Touch: hover does not exist, so a first tap PREVIEWS (inspect, forecast,
+// threat) and a second tap on the same tile commits. Desktop is unchanged.
+const touchMode = (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) || !!window.__forceTouch;
+let pendingTap = null;
 
 const $ = (id) => document.getElementById(id);
 const cv = $('cv');
@@ -252,6 +256,7 @@ const NODE_ART = {
 
 function openMap() {
   saveRun();
+  if (settings.sound !== false && run) setMusicFloor(FLOORS[run.floorIdx].n);
   showScreen('mapScreen');
   const f = FLOORS[run.floorIdx];
   $('mapScreen').style.backgroundImage =
@@ -506,7 +511,7 @@ function startBattle(node) {
     relics: run.relics,
   });
   st.difficulty = settings.difficulty;
-  if (settings.sound !== false) setMusicMode(kind === 'boss' ? 'boss' : 'battle');
+  if (settings.sound !== false) { setMusicFloor(floor.n); setMusicMode(kind === 'boss' ? 'boss' : 'battle'); }
   view.palette = floor.palette;
   view.floorN = floor.n;
   view.threat = settings.threatDefault ? E.threatMap(st) : null;
@@ -624,6 +629,12 @@ function onBoardClick(t) {
   if (mode === 'ability' && armedAbility) {
     const legal = view.targetTiles || [];
     if (legal.some(p => p.x === t.x && p.y === t.y)) {
+      if (touchMode && !(pendingTap && pendingTap.x === t.x && pendingTap.y === t.y && pendingTap.mode === 'ability')) {
+        pendingTap = { x: t.x, y: t.y, mode: 'ability' };
+        touchPreview(t);
+        return;
+      }
+      pendingTap = null;
       const u = unitByUid(view.selected);
       const pick = legal.find(p => p.x === t.x && p.y === t.y);
       E.useAbility(st, u, armedAbility, t.x, t.y, pick.dir);
@@ -635,6 +646,12 @@ function onBoardClick(t) {
   if (mode === 'attack') {
     const legal = view.targetTiles || [];
     if (legal.some(p => p.x === t.x && p.y === t.y)) {
+      if (touchMode && !(pendingTap && pendingTap.x === t.x && pendingTap.y === t.y && pendingTap.mode === 'attack')) {
+        pendingTap = { x: t.x, y: t.y, mode: 'attack' };
+        touchPreview(t);
+        return;
+      }
+      pendingTap = null;
       const u = unitByUid(view.selected);
       const target = E.occupant(st, t.x, t.y)
         || { structure: true, x: t.x, y: t.y };
@@ -645,6 +662,7 @@ function onBoardClick(t) {
     cancelMode(); return;
   }
 
+  if (touchMode && clicked && clicked.side === 'enemy') { touchPreview(t); return; }
   if (clicked && clicked.side === 'player' && !clicked.acted) { select(clicked.uid); return; }
   if (clicked && clicked.side === 'player') { view.selected = clicked.uid; mode = 'idle'; view.moveTiles = null; syncUI(); return; }
 
@@ -661,6 +679,7 @@ function onBoardClick(t) {
 }
 
 function select(uid) {
+  pendingTap = null;
   if (settings.sound !== false) play('select');
   view.selected = uid;
   const u = unitByUid(uid);
@@ -675,7 +694,27 @@ function select(uid) {
   syncUI();
 }
 
+function touchPreview(t) {
+  view.hover = t;
+  updateInspect(t);
+  const o = E.occupant(st, t.x, t.y);
+  view.threatFocus = (o && o.side === 'enemy' && o.alive) ? E.threatMap(st, o) : null;
+  view.forecast = null;
+  const sel = view.selected ? unitByUid(view.selected) : null;
+  if (sel && o && o.side === 'enemy' && o.alive) {
+    const ab = mode === 'ability' ? ABILITIES[armedAbility] : null;
+    if (!ab || ab.dmg) {
+      const prof = E.damageProfile(st, sel, o, ab ? { dmg: ab.dmg, pierce: ab.pierce } : {});
+      view.forecast = { x: t.x, y: t.y, min: prof.min, max: prof.max,
+        kill: prof.max >= o.hp, flank: prof.flanking, confirm: true };
+    }
+  }
+  E.logLine(st, 'Tap again to confirm.');
+  syncUI();
+}
+
 function cancelMode() {
+  pendingTap = null;
   armedAbility = null;
   view.targetTiles = null;
   const u = view.selected ? unitByUid(view.selected) : null;
@@ -1635,6 +1674,38 @@ document.addEventListener('pointerdown', () => setVolumes(settings.volMaster, se
       d.addEventListener('click', () => { if (confirm('Erase ALL progress? There is no undo.')) { wipeAll(); } });
       box.appendChild(d);
     }
+    {
+      const list = crashes();
+      const d = document.createElement('div');
+      d.className = 'choice';
+      d.innerHTML = '<h3>Crash journal<span class="costTag">' + list.length + '</span></h3>'
+        + '<div class="role">' + (list.length ? 'Click to view' : 'Empty — good') + '</div>'
+        + '<div class="blurb">Uncaught errors are recorded here. If something breaks, this is the report.</div>';
+      if (list.length) d.addEventListener('click', () => {
+        $('mEyebrow').textContent = 'What went wrong, and when';
+        $('mTitle').textContent = 'CRASH JOURNAL';
+        $('mLede').textContent = '';
+        const box2 = $('mChoices');
+        box2.innerHTML = '';
+        for (const c2 of list.slice().reverse()) {
+          const e2 = document.createElement('div');
+          e2.className = 'choice locked';
+          e2.innerHTML = '<h3 style="font-size:13px">' + c2.t + '</h3>'
+            + '<div class="role">' + c2.kind + ' · ' + (c2.screen || '?') + (c2.floor ? ' · floor ' + c2.floor : '') + '</div>'
+            + '<div class="blurb mono" style="font-size:10.5px;word-break:break-all">' + c2.msg + '<br>' + c2.stack + '</div>';
+          box2.appendChild(e2);
+        }
+        $('mFoot').innerHTML = '';
+        const clr = document.createElement('button');
+        clr.textContent = 'Clear the journal';
+        clr.addEventListener('click', () => { localStorage.removeItem(CRASH_KEY); screenSettings(); });
+        const back2 = document.createElement('button');
+        back2.textContent = 'Back';
+        back2.addEventListener('click', screenSettings);
+        $('mFoot').append(back2, clr);
+      });
+      box.appendChild(d);
+    }
     card('Reduced motion', 'Stillness where possible', 'Stops the screen shake, haze, embers, entrance marches, and the moving map routes. The game plays identically.',
       !!settings.reducedMotion, () => { settings.reducedMotion = !settings.reducedMotion; applyMotionClass(); });
     card('Screen shake', 'Hits rattle the board', 'A slap of movement on big hits, deaths, and powder. Turn it off if it bothers your eyes.',
@@ -1742,6 +1813,23 @@ function goTitle() {
     $('btnStart').classList.add('primary');
   }
 }
+
+// ============================================================ crash journal
+// Uncaught errors land in a localStorage ring so a playtest crash is a
+// report, not a shrug. Read + clear from Settings.
+const CRASH_KEY = 'countermine_crashes_v1';
+function crashes() { try { return JSON.parse(localStorage.getItem(CRASH_KEY) || '[]'); } catch (e) { return []; } }
+function logCrash(kind, msg, stack) {
+  try {
+    const list = crashes();
+    list.push({ t: new Date().toISOString(), kind, msg: String(msg).slice(0, 300),
+      stack: String(stack || '').split('\n').slice(0, 4).join(' | ').slice(0, 400),
+      screen: currentScreen, floor: run ? run.floorIdx + 1 : null });
+    localStorage.setItem(CRASH_KEY, JSON.stringify(list.slice(-20)));
+  } catch (e) {}
+}
+window.addEventListener('error', (ev) => logCrash('error', ev.message, ev.error && ev.error.stack));
+window.addEventListener('unhandledrejection', (ev) => logCrash('rejection', ev.reason && ev.reason.message || ev.reason, ev.reason && ev.reason.stack));
 
 // ================================================================== audio
 document.addEventListener('pointerdown', unlockAudio, { once: true });
@@ -1953,6 +2041,11 @@ setInterval(() => {
     step(16);
   }
 }, 250);
+
+// ---- PWA: production only; the dev server must stay uncached
+if (location.protocol === 'https:' && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
 
 // =================================================================== boot
 goTitle();
