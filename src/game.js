@@ -5,7 +5,7 @@ import {
 } from './data.js';
 import * as E from './engine.js';
 import * as R from './render.js';
-import { drawPortrait, CUSTOM_OPTIONS, FIGURES } from './art.js';
+import { drawPortrait, CUSTOM_OPTIONS, FIGURES, portraitURL, PROP_NAMES } from './art.js';
 import { openCreator, closeCreator, makeCaptain, defaultCaptain, randomCaptain } from './creator.js';
 import { startTutorial, tickTutorial, tutorialActive, endTutorial, hideCoach } from './tutorial.js';
 import { play, unlockAudio, setSfxEnabled, startAmbience, stopAmbience } from './sfx.js';
@@ -245,7 +245,8 @@ function renderRoster() {
     const d = document.createElement('div');
     d.className = 'rosterCard';
     const frac = Math.max(0, p.hp / p.maxHp);
-    d.innerHTML = '<div class="nm">' + p.name + '</div>'
+    d.innerHTML = '<img class="pimg rosterP" src="' + portraitURL(p.defId, p.custom, 52, 62) + '" alt="">'
+      + '<div class="nm">' + p.name + '</div>'
       + '<div class="cls">' + c.name + (p.defId === 'captain' ? ' · you' : '') + '</div>'
       + '<div class="hpbar' + (frac <= .34 ? ' low' : '') + '"><i style="width:' + (frac*100) + '%"></i></div>'
       + '<div class="mono" style="font-size:10.5px;color:var(--ink-far);margin-top:4px">'
@@ -672,6 +673,7 @@ function syncUI() {
     row.className = 'unitRow' + (view.selected === u.uid ? ' sel' : '') + ((u.acted || !u.alive) ? ' done' : '');
     const frac = Math.max(0, u.hp / u.maxHp);
     row.innerHTML =
+      '<img class="pimg" src="' + portraitURL(u.defId, u.custom, 40, 48) + '" alt="">' +
       '<div style="flex:1 1 auto;min-width:0">' +
       '<div class="nm">' + (u.alive ? u.name : '<s>' + u.name + '</s>') + '</div>' +
       '<div class="cls">' + u.def.name + (u.usesLoad ? (u.loaded || u.freeShot ? ' · loaded' : ' · empty') : '') + '</div>' +
@@ -765,7 +767,11 @@ function updateInspect(t) {
     return;
   }
   if (tile.bar) { el.innerHTML = '<b>Barricade</b><br><span class="mono">' + tile.bar.hp + '/' + tile.bar.maxHp + '</span><br><i style="color:#7d7264">Blocks movement and line of sight. Break it or go around.</i>'; return; }
-  if (tile.t === E.T.WALL) { el.innerHTML = '<b>Fallen masonry</b><br><i style="color:#7d7264">Blocks movement and sight. A charge will open it.</i>'; return; }
+  if (tile.t === E.T.WALL) {
+    const pn = tile.prop && PROP_NAMES[tile.prop];
+    if (pn) { el.innerHTML = '<b>' + pn.name + '</b><br><i style="color:#7d7264">' + pn.blurb + ' Blocks movement and sight.</i>'; return; }
+    el.innerHTML = '<b>Fallen masonry</b><br><i style="color:#7d7264">Blocks movement and sight. A charge will open it.</i>'; return;
+  }
   if (tile.t === E.T.PIT) { el.innerHTML = '<b>Shaft</b><br><i style="color:#7d7264">Nothing crosses it. Anything pulled in does not come back.</i>'; return; }
   if (tile.t === E.T.MUD) { el.innerHTML = '<b>Sump water</b><br><i style="color:#7d7264">Costs two movement to wade.</i>'; return; }
   el.innerHTML = '<b>Flagstone</b><br><i style="color:#7d7264">Cold, and someone died on it.</i>';
@@ -847,6 +853,7 @@ function screenAftermath(gold, dead) {
     const d = document.createElement('div');
     d.className = 'choice';
     d.innerHTML =
+      '<img class="cardP" src="' + portraitURL(o.defId, null, 84, 100) + '" alt="">' +
       '<h3>' + o.name + '</h3>' +
       '<div class="role">' + c.name + ' · ' + c.role + (have ? ' · already have one' : '') + '</div>' +
       '<div class="stats mono">' + o.hp + '/' + c.hp + ' hp · ' + c.armor + ' armour · ' + c.mov + ' move'
@@ -888,7 +895,8 @@ function chooseWhoToLeave(offer) {
     const isCap = p.defId === 'captain';
     const d = document.createElement('div');
     d.className = 'choice' + (isCap ? ' locked' : '');
-    d.innerHTML = '<h3>' + p.name + '</h3><div class="role">' + pc.name + (isCap ? ' · you' : '') + '</div>' +
+    d.innerHTML = '<img class="cardP" src="' + portraitURL(p.defId, p.custom, 84, 100) + '" alt="">' +
+      '<h3>' + p.name + '</h3><div class="role">' + pc.name + (isCap ? ' · you' : '') + '</div>' +
       '<div class="stats mono">' + p.hp + '/' + p.maxHp + ' hp · ' + p.kills + ' kills</div>' +
       '<div class="blurb">' + (isCap ? 'You signed for the company. You do not get to stay behind.' : 'Leaving them here ends them as surely as a blade.') + '</div>';
     if (isCap) { box.appendChild(d); continue; }
@@ -1133,7 +1141,8 @@ function screenMuster() {
       const owned = meta.classes.includes(key);
       const d = document.createElement('div');
       d.className = 'choice' + (owned || meta.tallies < c.cost ? ' locked' : '');
-      d.innerHTML = '<h3>' + c.name + (owned ? '' : '<span class="costTag">' + c.cost + '</span>') + '</h3>'
+      d.innerHTML = '<img class="cardP" src="' + portraitURL(key, null, 84, 100) + '" alt="">'
+        + '<h3>' + c.name + (owned ? '' : '<span class="costTag">' + c.cost + '</span>') + '</h3>'
         + '<div class="role">' + (owned ? 'On the roll' : 'Recruitable class') + '</div>'
         + '<div class="stats mono">' + c.hp + ' hp · ' + c.armor + ' armour · ' + c.mov + ' move</div>'
         + c.abilities.map(a => '<div class="abLine"><b>' + ABILITIES[a].name + '</b> — ' + ABILITIES[a].desc + '</div>').join('')

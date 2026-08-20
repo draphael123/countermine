@@ -1,7 +1,7 @@
 // COUNTERMINE -- board rendering. Canvas draws the battlefield only; every
 // panel, menu and button is DOM, which is far easier to keep looking good.
 import { GW, GH, T, tileAt, occupant, hasStatus, getStatus } from './engine.js';
-import { unitSprite, floorTile, wallTile, mudTile, shade, decalTile, FLOOR_DECALS } from './art.js';
+import { unitSprite, floorTile, wallTile, mudTile, shade, decalTile, FLOOR_DECALS, propTile } from './art.js';
 
 export const TILE = 52;
 export const PAD_TOP = 34;
@@ -86,7 +86,8 @@ export function draw(ctx, st, view) {
       const tile = st.grid[y][x];
       const { px, py } = tileToPx(x, y);
       if (tile.t === T.WALL) {
-        ctx.drawImage(wallTile(TILE, pal.wall, tile.rubbleSeed), px, py);
+        if (tile.prop) ctx.drawImage(propTile(TILE, tile.prop, pal.floor, tile.rubbleSeed), px, py);
+        else ctx.drawImage(wallTile(TILE, pal.wall, tile.rubbleSeed), px, py);
       } else if (tile.t === T.PIT) {
         // the shaft: floor-coloured rim collapsing into black, far lip lit
         ctx.drawImage(floorTile(TILE, pal.floor, tile.rubbleSeed), px, py);
@@ -445,7 +446,9 @@ function drawUnit(ctx, st, u, view, t) {
     ctx.restore();
   }
 
-  const spr = unitSprite(u.defId, u.custom);
+  let frame = 'idle';
+  if (u.anim && u.anim.kind === 'walk') frame = (((t - u.anim.start) / 110) | 0) % 2 ? 'walkA' : 'walkB';
+  const spr = unitSprite(u.defId, u.custom, frame);
   const face = u.face || (u.side === 'enemy' ? -1 : 1);
   ctx.save();
   if (spent) ctx.globalAlpha = 0.45;

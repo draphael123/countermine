@@ -194,6 +194,37 @@ function generateMap(rng, floor, kind) {
       if (rng.chance(0.5) && inBounds(cx, cy + 1) && g[cy + 1][cx].t === T.FLOOR) g[cy + 1][cx].t = T.PIT;
     }
   }
+  // Set pieces: one landmark per map, flavoured to the floor. They are WALL
+  // tiles with their own art -- they block like masonry, they just aren't.
+  const placeProp = (kinds) => {
+    for (let tries = 0; tries < 24; tries++) {
+      const x = rng.int(4, GW - 2 - kinds.length), y = rng.int(1, GH - 2);
+      let ok = true;
+      for (let k = 0; k < kinds.length; k++) {
+        if (g[y][x + k].t !== T.FLOOR || g[y][x + k].bar) ok = false;
+      }
+      if (!ok) continue;
+      for (let k = 0; k < kinds.length; k++) {
+        g[y][x + k].t = T.WALL;
+        g[y][x + k].prop = kinds[k];
+      }
+      return true;
+    }
+    return false;
+  };
+  if (kind !== 'boss') {
+    if (floor.n === 1) {
+      if (rng.chance(0.65)) placeProp(['gateL', 'gateR']);
+      if (rng.chance(0.5)) placeProp(['ram']);
+    } else if (floor.n === 2) {
+      if (rng.chance(0.7)) placeProp(['altar']);
+    } else {
+      if (rng.chance(0.6)) placeProp(['forge']);
+      if (rng.chance(0.6)) placeProp(['column']);
+      if (rng.chance(0.4)) placeProp(['column']);
+    }
+  }
+
   // Standing barricades from the old assault
   const bars = rng.int(2, 5);
   for (let i = 0; i < bars; i++) {

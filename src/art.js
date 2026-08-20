@@ -25,7 +25,8 @@ function shade(hex, amt) {
 
 // --------------------------------------------------------------- the figure
 // spec: { cloth, metal, skin, bulk, tall, helm, weapon, beast, tabard }
-function drawFigure(g, w, h, spec) {
+// pose: 'idle' | 'walkA' | 'walkB' -- the two walk frames scissor the legs.
+function drawFigure(g, w, h, spec, pose) {
   const cx = w / 2;
   const ground = h - 6;
   const bulk = spec.bulk || 1;
@@ -37,20 +38,22 @@ function drawFigure(g, w, h, spec) {
   const metal = shade(spec.metal || '#6e6a63', LIFT);
   const dark = shade(cloth, -26);
 
-  if (spec.beast) return drawBeast(g, w, h, spec);
+  if (spec.beast) return drawBeast(g, w, h, spec, pose);
 
   const bodyH = 34 * tall;
   const shoulderW = 22 * bulk;
   const waistW = 14 * bulk;
   const topY = ground - bodyH;
 
-  // legs, with boots a shade darker so the figure has feet on the floor
+  // legs, with boots a shade darker so the figure has feet on the floor.
+  // Walk frames scissor them apart/together; two frames is enough for a march.
+  const step = pose === 'walkA' ? 2 : pose === 'walkB' ? -2 : 0;
   g.fillStyle = shade(cloth, -34);
-  g.fillRect(cx - 6.5 * bulk, ground - 13, 5.5 * bulk, 13);
-  g.fillRect(cx + 1 * bulk, ground - 13, 5.5 * bulk, 13);
+  g.fillRect(cx - 6.5 * bulk - step, ground - 13, 5.5 * bulk, 13);
+  g.fillRect(cx + 1 * bulk + step, ground - 13, 5.5 * bulk, 13);
   g.fillStyle = '#191410';
-  g.fillRect(cx - 7 * bulk, ground - 3.5, 6.5 * bulk, 3.5);
-  g.fillRect(cx + 0.8 * bulk, ground - 3.5, 6.5 * bulk, 3.5);
+  g.fillRect(cx - 7 * bulk - step, ground - 3.5, 6.5 * bulk, 3.5);
+  g.fillRect(cx + 0.8 * bulk + step, ground - 3.5, 6.5 * bulk, 3.5);
 
   // weapon behind the body
   if (spec.weapon === 'pole' || spec.weapon === 'maul' || spec.weapon === 'staff') {
@@ -244,15 +247,16 @@ function drawWeapon(g, cx, ground, spec, behind) {
   }
 }
 
-function drawBeast(g, w, h, spec) {
+function drawBeast(g, w, h, spec, pose) {
+  const bstep = pose === 'walkA' ? 2 : pose === 'walkB' ? -2 : 0;
   const cx = w / 2, ground = h - 6;
   const cloth = shade(spec.cloth || '#6e5a4e', 20);
   // low, long body -- reads instantly as "not a man" on a top-down grid
   g.fillStyle = shade(cloth, -30);
-  g.fillRect(cx - 14, ground - 12, 4, 12);
-  g.fillRect(cx - 4, ground - 11, 4, 11);
-  g.fillRect(cx + 5, ground - 12, 4, 12);
-  g.fillRect(cx + 13, ground - 11, 4, 11);
+  g.fillRect(cx - 14 - bstep, ground - 12, 4, 12);
+  g.fillRect(cx - 4 + bstep, ground - 11, 4, 11);
+  g.fillRect(cx + 5 - bstep, ground - 12, 4, 12);
+  g.fillRect(cx + 13 + bstep, ground - 11, 4, 11);
   g.fillStyle = cloth;
   g.beginPath();
   g.ellipse(cx, ground - 18, 19, 9, 0, 0, Math.PI * 2);
@@ -313,17 +317,73 @@ const FIGSCALE = 1.34;
 
 // `custom` lets the player's captain override cloth/tabard/helm/weapon. The
 // cache key has to include it or every captain shares the first one baked.
-export function unitSprite(defId, custom) {
+// `frame` selects idle/walkA/walkB. Every sprite is baked with a dark OUTLINE:
+// the single cheapest thing separating "canvas rects" from "a game sprite".
+export function unitSprite(defId, custom, frame) {
   const base = FIGURES[defId] || FIGURES.starveling;
   const spec = custom ? Object.assign({}, base, custom) : base;
-  const key = 'u:' + defId + ':' + FIGSCALE + ':' +
+  const pose = frame || 'idle';
+  const key = 'u:' + defId + ':' + FIGSCALE + ':' + pose + ':' +
     (custom ? [custom.cloth, custom.tabard, custom.helm, custom.weapon, custom.metal].join('|') : '-');
   const big = (spec.bulk || 1) > 1.3;
   const w = big ? 92 : 68, h = big ? 108 : 84;
-  return bake(key, Math.round(w * FIGSCALE), Math.round(h * FIGSCALE), (g, W, H) => {
-    g.scale(FIGSCALE, FIGSCALE);
-    drawFigure(g, W / FIGSCALE, H / FIGSCALE, spec);
+  return bake(key, Math.round(w * FIGSCALE) + 4, Math.round(h * FIGSCALE) + 4, (g, W, H) => {
+    const tmp = document.createElement('canvas');
+    tmp.width = W; tmp.height = H;
+    const tg = tmp.getContext('2d');
+    tg.translate(2, 2);
+    tg.scale(FIGSCALE, FIGSCALE);
+    drawFigure(tg, (W - 4) / FIGSCALE, (H - 4) / FIGSCALE, spec, pose);
+    // silhouette pass: the figure's own alpha, filled near-black
+    const sil = document.createElement('canvas');
+    sil.width = W; sil.height = H;
+    const sg = sil.getContext('2d');
+    sg.drawImage(tmp, 0, 0);
+    sg.globalCompositeOperation = 'source-in';
+    sg.fillStyle = 'rgba(9,7,6,0.88)';
+    sg.fillRect(0, 0, W, H);
+    for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1]]) {
+      g.drawImage(sil, ox, oy);
+    }
+    g.drawImage(tmp, 0, 0);
   });
+}
+
+// Card portraits: the same figure staged on a lit pedestal of dark air.
+// Returned as a data URL so it can be dropped straight into card innerHTML.
+const portraitCache = new Map();
+export function portraitURL(defId, custom, w = 76, h = 92) {
+  const key = 'pu:' + defId + ':' + w + 'x' + h + ':' +
+    (custom ? [custom.cloth, custom.tabard, custom.helm, custom.weapon].join('|') : '-');
+  if (portraitCache.has(key)) return portraitCache.get(key);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d');
+  const bg = g.createRadialGradient(w / 2, h * 0.40, 4, w / 2, h * 0.40, h * 0.66);
+  bg.addColorStop(0, '#332a20');
+  bg.addColorStop(1, '#161210');
+  g.fillStyle = bg;
+  g.fillRect(0, 0, w, h);
+  const gl = g.createRadialGradient(w / 2, h * 0.3, 2, w / 2, h * 0.3, w * 0.62);
+  gl.addColorStop(0, 'rgba(212,140,70,0.22)');
+  gl.addColorStop(1, 'rgba(212,140,70,0)');
+  g.fillStyle = gl;
+  g.fillRect(0, 0, w, h);
+  const spr = unitSprite(defId, custom, 'idle');
+  // Bust framing: head and torso fill the frame. A full figure at card size
+  // is an unreadable dark speck; a bust reads as a person. The sprite canvas
+  // has empty headroom baked in, so crop the FIGURE band: helm tip sits near
+  // 24% of the canvas, the belt near 72%.
+  const sy = spr.height * 0.20;
+  const srcH = spr.height * 0.54;
+  const srcW = spr.width * 0.72;
+  const sx = (spr.width - srcW) / 2;
+  const s = Math.max((w - 4) / srcW, (h - 4) / srcH);
+  const dw = srcW * s, dh = srcH * s;
+  g.drawImage(spr, sx, sy, srcW, srcH, w / 2 - dw / 2, h / 2 - dh / 2 + 2, dw, dh);
+  const url = c.toDataURL();
+  portraitCache.set(key, url);
+  return url;
 }
 
 // Live portrait for the creator -- not cached, it changes on every click.
@@ -594,6 +654,147 @@ export function decalTile(size, kind, seed) {
     }
   });
 }
+
+// -------------------------------------------------------------- set pieces
+// Landmark obstacles, one flavour per floor, so the levels stop being the
+// same architecture in three palettes. They occupy WALL tiles: they block
+// movement and sight like any masonry, they just aren't masonry.
+export function propTile(size, kind, floorCol, seed) {
+  return bake('prop:' + kind + size + floorCol + seed, size, size, (g, W, H) => {
+    let s = seed + 401;
+    const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+    // sits ON the floor, so start from the floor itself
+    g.drawImage(floorTile(size, floorCol, seed), 0, 0);
+    const wood = '#39291c';
+    const woodLit = '#57402a';
+    const iron = '#4c4a48';
+
+    if (kind === 'gateL' || kind === 'gateR') {
+      // one jamb of a broken gatehouse; mirrored for the other half
+      const flip = kind === 'gateR';
+      g.save();
+      if (flip) { g.translate(W, 0); g.scale(-1, 1); }
+      g.fillStyle = 'rgba(0,0,0,0.55)';                    // the dark beyond
+      g.fillRect(W * 0.45, 4, W * 0.55, H - 8);
+      g.fillStyle = '#57504a';                              // jamb stones
+      const courses = [0, 0.24, 0.5, 0.74];
+      courses.forEach((cy, i) => {
+        g.fillStyle = shade('#57504a', (i % 2 ? -10 : 6));
+        g.fillRect(2, H * cy + 2, W * 0.42, H * 0.22);
+      });
+      // broken lintel: a squared stone jutting from the jamb, snapped short
+      g.fillStyle = shade('#57504a', 10);
+      g.beginPath();
+      g.moveTo(2, 2); g.lineTo(W * 0.78, 2); g.lineTo(W * 0.70, 12); g.lineTo(2, 12);
+      g.closePath(); g.fill();
+      g.fillStyle = 'rgba(0,0,0,0.35)';
+      g.fillRect(2, 10, W * 0.72, 2);
+      // portcullis remnant: iron bars hanging into the dark, snapped unevenly
+      g.strokeStyle = '#3a3835';
+      g.lineWidth = 2.5;
+      for (let i = 0; i < 3; i++) {
+        const gx = W * (0.55 + i * 0.13);
+        const len = 16 + rnd() * H * 0.45;
+        g.beginPath(); g.moveTo(gx, 12); g.lineTo(gx, 12 + len); g.stroke();
+        g.fillStyle = '#55524e';
+        g.fillRect(gx - 1.2, 12 + len - 2.5, 2.4, 2.5); // lit broken tip
+        g.strokeStyle = '#3a3835';
+      }
+      g.restore();
+    } else if (kind === 'ram') {
+      // the siege ram they abandoned: a capped beam on trestles
+      g.fillStyle = 'rgba(0,0,0,0.30)';
+      g.beginPath(); g.ellipse(W / 2, H - 8, W * 0.42, 5, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = wood;
+      g.fillRect(4, H * 0.28, 8, H * 0.55);                 // trestle
+      g.fillRect(W - 12, H * 0.34, 8, H * 0.5);
+      g.fillStyle = woodLit;
+      g.save();
+      g.translate(W / 2, H * 0.42); g.rotate(-0.08);
+      g.fillRect(-W * 0.46, -5, W * 0.92, 11);              // the beam
+      g.fillStyle = shade(woodLit, 16);
+      g.fillRect(-W * 0.46, -5, W * 0.92, 3);
+      g.fillStyle = iron;                                    // iron head
+      g.beginPath();
+      g.moveTo(W * 0.46, -7); g.lineTo(W * 0.56, 0); g.lineTo(W * 0.46, 8);
+      g.closePath(); g.fill();
+      g.restore();
+      g.strokeStyle = 'rgba(0,0,0,0.4)'; g.lineWidth = 1;   // lashings
+      for (let i = 0; i < 3; i++) {
+        const lx = W * (0.25 + i * 0.22);
+        g.beginPath(); g.moveTo(lx, H * 0.30); g.lineTo(lx + 3, H * 0.55); g.stroke();
+      }
+    } else if (kind === 'altar') {
+      // a drowned shrine: pale figure over dark water
+      g.fillStyle = 'rgba(16,30,32,0.75)';
+      g.beginPath(); g.ellipse(W / 2, H - 10, W * 0.44, 8, 0, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(140,180,180,0.20)'; g.lineWidth = 1;
+      g.beginPath(); g.ellipse(W / 2, H - 10, W * 0.34, 5.5, 0, 0, Math.PI * 2); g.stroke();
+      const stone = '#8d8877';
+      g.fillStyle = shade(stone, -22);
+      g.fillRect(W * 0.30, H * 0.52, W * 0.40, H * 0.30);   // pedestal
+      g.fillStyle = stone;                                   // robed torso
+      g.beginPath();
+      g.moveTo(W * 0.36, H * 0.54);
+      g.quadraticCurveTo(W * 0.5, H * 0.10, W * 0.64, H * 0.54);
+      g.closePath(); g.fill();
+      g.beginPath(); g.arc(W * 0.5, H * 0.16, 4.5, 0, Math.PI * 2); g.fill(); // bowed head
+      g.fillStyle = shade(stone, 18);
+      g.fillRect(W * 0.36, H * 0.52, 3, H * 0.3);
+      g.fillStyle = 'rgba(96,120,70,0.35)';                  // moss streaks
+      g.fillRect(W * 0.40, H * 0.30, 2.5, H * 0.42);
+      g.fillRect(W * 0.56, H * 0.42, 2, H * 0.3);
+    } else if (kind === 'forge') {
+      // the furnace that started all of it, still warm
+      const stone = '#4e453f';
+      g.fillStyle = shade(stone, -10);
+      g.fillRect(4, 8, W - 8, H - 14);
+      g.fillStyle = shade(stone, 8);
+      g.fillRect(4, 8, W - 8, 5);
+      g.fillRect(8, 2, W * 0.3, 8);                          // chimney stub
+      const mouth = g.createRadialGradient(W / 2, H - 16, 1, W / 2, H - 16, 13);
+      mouth.addColorStop(0, '#ffb35c');
+      mouth.addColorStop(0.5, '#c2571f');
+      mouth.addColorStop(1, '#3a1508');
+      g.fillStyle = mouth;
+      g.beginPath();
+      g.moveTo(W * 0.32, H - 6);
+      g.quadraticCurveTo(W * 0.5, H - 30, W * 0.68, H - 6);
+      g.closePath(); g.fill();
+      g.fillStyle = 'rgba(255,190,110,0.5)';
+      for (let i = 0; i < 3; i++) g.fillRect(W * (0.42 + rnd() * 0.2), H - 14 - rnd() * 8, 1.5, 1.5);
+      const glow = g.createRadialGradient(W / 2, H - 10, 2, W / 2, H - 10, W * 0.8);
+      glow.addColorStop(0, 'rgba(230,120,50,0.20)');
+      glow.addColorStop(1, 'rgba(230,120,50,0)');
+      g.fillStyle = glow;
+      g.fillRect(0, 0, W, H);
+    } else if (kind === 'column') {
+      // mine props: timber posts and an X-brace holding the roof
+      g.fillStyle = 'rgba(0,0,0,0.30)';
+      g.beginPath(); g.ellipse(W / 2, H - 6, W * 0.34, 4, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = wood;
+      g.fillRect(8, 2, 7, H - 6);
+      g.fillRect(W - 15, 2, 7, H - 6);
+      g.fillStyle = woodLit;
+      g.fillRect(8, 2, 2.5, H - 6);
+      g.fillRect(W - 15, 2, 2.5, H - 6);
+      g.strokeStyle = woodLit; g.lineWidth = 5;
+      g.beginPath(); g.moveTo(10, 8); g.lineTo(W - 10, H - 12); g.stroke();
+      g.beginPath(); g.moveTo(W - 10, 8); g.lineTo(10, H - 12); g.stroke();
+      g.fillStyle = wood;
+      g.fillRect(4, 0, W - 8, 5);                            // header beam
+    }
+  });
+}
+
+export const PROP_NAMES = {
+  gateL: { name: 'The old gatehouse', blurb: 'The wall came down; the gate, stubbornly, did not.' },
+  gateR: { name: 'The old gatehouse', blurb: 'The wall came down; the gate, stubbornly, did not.' },
+  ram: { name: 'An abandoned ram', blurb: 'They got it down the stair. Nobody remembers how, or why.' },
+  altar: { name: 'A drowned altar', blurb: 'Someone still leaves offerings. The water takes them.' },
+  forge: { name: 'The deep forge', blurb: 'Cold for eleven years everywhere but here.' },
+  column: { name: 'Mine props', blurb: 'Timber holding up a hundred tons of fortress. Do not test it.' },
+};
 
 // What grows on each floor's stones.
 export const FLOOR_DECALS = {
