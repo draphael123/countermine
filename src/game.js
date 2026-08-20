@@ -22,7 +22,7 @@ const DEFAULT_META = () => ({
   seenFoes: [], foeKills: {}, history: [], tipsSeen: [], lossCoached: false,
 });
 const DEFAULT_SETTINGS = () => ({
-  threatDefault: true, fastEnemy: false, confirmEnd: true, sound: true,
+  threatDefault: true, fastEnemy: false, confirmEnd: true, sound: true, autoEnd: true, duelAnims: true,
   volMaster: 0.7, volMusic: 0.7, volSfx: 0.9,
   fastAnim: false, cbThreat: false, dmgNumbers: true,
   reducedMotion: (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches),
@@ -121,7 +121,7 @@ function newRun(seed, captain) {
   const rng = E.makeRng(s);
   const cap = captain || makeCaptain(defaultCaptain());
   run = {
-    seed: s, rng, floorIdx: 0, gold: 60, relics: [], party: [], nodeId: null,
+    seed: s, rng, floorIdx: 0, gold: 60, mana: 12, manaMax: 12, relics: [], party: [], nodeId: null,
     map: null, cleared: 0, fights: 0, kills: 0, losses: 0,
   };
   // You go down ALONE. Everyone else is found below.
@@ -211,6 +211,20 @@ function balanceFloor(byCol, COLS, rng) {
       else camps++;
     }
   }
+  // prisoners: the ONLY way the company grows -- guarantee one early, cap two
+  const pris = mid.filter(n => n.type === 'prisoner');
+  if (pris.length === 0) {
+    const early = byCol[1].concat(byCol[2]).filter(n => !isCombat(n));
+    const pick2 = early[0] || byCol[1][0];
+    if (pick2) pick2.type = 'prisoner';
+  } else if (!pris.some(n => n.col <= 2)) {
+    pris[0].type = rng.chance(0.5) ? 'cache' : 'fight';
+    const early = byCol[1].concat(byCol[2]);
+    (early.find(n => !isCombat(n)) || early[0]).type = 'prisoner';
+  }
+  let pcount = 0;
+  for (const n of mid) if (n.type === 'prisoner' && ++pcount > 2) n.type = 'fight';
+
   // at least three things to fight before the boss
   let combat = mid.filter(isCombat).length;
   const soft = rng.shuffle(mid.filter(n => !isCombat(n)));
@@ -230,10 +244,11 @@ function nodeType(rng, c, COLS) {
   if (c === COLS - 1) return 'boss';
   if (c === COLS - 2) return rng.chance(0.5) ? 'camp' : 'vendor';
   const roll = rng.next();
-  if (c >= 2 && roll < 0.18) return 'elite';
-  if (roll < 0.44) return 'fight';
-  if (roll < 0.62) return 'cache';
-  if (roll < 0.78) return 'camp';
+  if (c >= 2 && roll < 0.16) return 'elite';
+  if (roll < 0.40) return 'fight';
+  if (roll < 0.54) return 'prisoner';
+  if (roll < 0.68) return 'cache';
+  if (roll < 0.80) return 'camp';
   if (roll < 0.9) return 'vendor';
   return 'fight';
 }
@@ -245,6 +260,7 @@ const NODE_TIPS = {
   cache: 'A relic cache: take one of three, or the coin instead. You carry five at most.',
   vendor: 'The quartermaster sells relics, healing, and kit for gold. Gold dies with the run — spend it.',
   boss: 'The floor’s master. There is no way around, only through.',
+  prisoner: 'Someone is chained down here. Free them and decide what they turn out to be — the company only grows this way.',
 };
 
 const NODE_ART = {
@@ -254,6 +270,7 @@ const NODE_ART = {
   cache: { label: 'Spoil', glyph: '◆', colour: '#cbb27a' },
   vendor: { label: 'Quartermaster', glyph: '⚖', colour: '#7fa8c0' },
   boss: { label: 'The Deep End', glyph: '⚑', colour: '#c04a3a' },
+  prisoner: { label: 'Prisoner', glyph: '⛓', colour: '#c9a86a' },
 };
 
 function openMap() {
@@ -267,6 +284,7 @@ function openMap() {
   $('floorName').textContent = 'FLOOR ' + f.n + ' — ' + f.name;
   $('floorSub').textContent = f.sub;
   tweenNum($('goldNum'), run.gold);
+  $('manaNum').textContent = run.mana + '/' + run.manaMax;
   tweenNum($('tallyNum'), meta.tallies);
   renderRoster();
   const strip = $('relicStrip');
@@ -402,7 +420,7 @@ function saveRun(pendingNodeId) {
   try {
     localStorage.setItem(RUN_KEY, JSON.stringify({
       v: 1, seed: run.seed, rngState: run.rng.getState(),
-      floorIdx: run.floorIdx, gold: run.gold, relics: run.relics,
+      floorIdx: run.floorIdx, gold: run.gold, mana: run.mana, manaMax: run.manaMax, relics: run.relics,
       party: run.party.map(p => ({
         id: p.id, defId: p.defId, name: p.name, hp: p.hp, maxHp: p.maxHp, kills: p.kills,
       })),
@@ -428,7 +446,7 @@ function resumeRun() {
     rng.setState(d.rngState);
     const cap = makeCaptain(d.captainCfg || defaultCaptain());
     run = {
-      seed: d.seed, rng, floorIdx: d.floorIdx, gold: d.gold, relics: d.relics || [],
+      seed: d.seed, rng, floorIdx: d.floorIdx, gold: d.gold, mana: d.mana != null ? d.mana : 12, manaMax: d.manaMax || 12, relics: d.relics || [],
       party: d.party.map(p => p.defId === 'captain'
         ? Object.assign({}, p, { def: cap.def, custom: cap.custom }) : p),
       captain: cap, map: d.map,
@@ -460,6 +478,7 @@ function advanceFrom(node) {
 function nextFloor() {
   if (settings.sound !== false) play('descend');
   run.floorIdx++;
+  run.mana = Math.min(run.manaMax, run.mana + 4);
   if (run.floorIdx >= FLOORS.length) { runWon(); return; }
   run.map = buildFloorMap(run.rng, run.floorIdx);
   openMap();
@@ -471,10 +490,12 @@ let pendingNode = null;
 function enterNode(node) {
   pendingNode = node;
   if (node.type === 'boss') tip('boss');
+  if (node.type === 'prisoner') tip('prisoner');
   if (node.type === 'cache') tip('cache');
   else if (node.type === 'camp') tip('camp');
   else if (node.type === 'vendor') tip('vendor');
   if (node.type === 'fight' || node.type === 'elite' || node.type === 'boss') startBattle(node);
+  else if (node.type === 'prisoner') screenPrisoner();
   else if (node.type === 'camp') screenCamp();
   else if (node.type === 'cache') screenCache();
   else if (node.type === 'vendor') screenVendor();
@@ -525,6 +546,7 @@ function startBattle(node) {
     })),
     enemies: tutorialFight ? ['starveling', 'starveling'] : rollEnemies(run.rng, floor, kind, run.party.length),
     relics: run.relics,
+    mana: run.mana, manaMax: run.manaMax,
   });
   st.difficulty = settings.difficulty;
   if (settings.sound !== false) { setMusicFloor(floor.n); setMusicMode(kind === 'boss' ? 'boss' : 'battle'); }
@@ -535,6 +557,7 @@ function startBattle(node) {
   mode = 'idle';
   $('floorTag').textContent = 'Floor ' + floor.n + ' · ' + floor.name + ' · ' + NODE_ART[node.type].label;
   showScreen('battle');
+  if (!tutorialFight) setTimeout(() => tip('mana'), 900);
   if (kind === 'boss') {
     banner(BOSSES[floor.boss].name, 1900, 'boss');
     const bossU = st.units.find(u => u.boss);
@@ -767,7 +790,17 @@ function afterAction(u) {
   if (u && !u.acted) { select(u.uid); return; }
   if (st.phase === 'won' || st.phase === 'lost') { endBattle(); return; }
   const next = st.units.find(x => x.alive && x.side === 'player' && !x.acted);
-  if (next) select(next.uid); else { view.selected = null; syncUI(); }
+  if (next) select(next.uid);
+  else {
+    view.selected = null; syncUI();
+    if (settings.autoEnd !== false && !tutorialActive()) {
+      clearTimeout(afterAction.tk);
+      afterAction.tk = setTimeout(() => {
+        if (st && st.phase === 'player' &&
+          st.units.filter(x => x.alive && x.side === 'player').every(x => x.acted)) endTurn();
+      }, 550);
+    }
+  }
   if (settings.threatDefault) view.threat = E.threatMap(st);
 }
 
@@ -786,7 +819,7 @@ function armAttack() {
 function armAbility(aid) {
   if (!aid || !st || st.phase !== 'player') return;
   const u = unitByUid(view.selected);
-  if (!u || u.acted || !E.abilityReady(u, aid)) return;
+  if (!u || u.acted || !E.abilityReady(u, aid, st)) return;
   const ab = ABILITIES[aid];
   if (ab.target === 'self') {
     E.useAbility(st, u, aid, u.x, u.y, null);
@@ -843,6 +876,16 @@ function syncUI() {
     box.appendChild(row);
   }
 
+  // the company's shared mana pool
+  if (st.manaMax && st.manaMax < 90) {
+    const mrow = document.createElement('div');
+    mrow.className = 'abLine mono';
+    mrow.style.cssText = 'padding:4px 6px;color:#8fb4d8;letter-spacing:.4px';
+    mrow.textContent = 'Mana ' + st.mana + ' / ' + st.manaMax;
+    mrow.title = 'Shared by the whole company. Abilities spend it; camps, the quartermaster, and each new floor restore it.';
+    box.appendChild(mrow);
+  }
+
   // ability panel
   const u = view.selected ? st.units.find(x => x.uid === view.selected) : null;
   $('selName').textContent = u ? (u.name + ' — ' + u.def.name) : 'Nobody selected';
@@ -888,8 +931,9 @@ function syncUI() {
       const a = ABILITIES[aid];
       const cd = u.cds[aid] || 0;
       const ch = a.charges ? (u.charges[aid] || 0) : null;
-      const sub = kw(a.desc) + (cd > 0 ? ' · ready in ' + cd : '') + (ch != null ? ' · ' + ch + ' left' : '');
-      mk(a.name + ' [' + (i + 1) + ']', sub, !acted && E.abilityReady(u, aid),
+      const short = a.mana ? st.mana < a.mana : false;
+      const sub = kw(a.desc) + (a.mana ? ' · ' + a.mana + ' mana' + (short ? ' — NOT ENOUGH' : '') : '') + (cd > 0 ? ' · ready in ' + cd : '') + (ch != null ? ' · ' + ch + ' left' : '');
+      mk(a.name + ' [' + (i + 1) + ']', sub, !acted && E.abilityReady(u, aid, st),
         armedAbility === aid, () => armAbility(aid),
         () => E.abilityTargets(st, u, aid), KIND_COL[a.kind], KIND_GLYPH[a.kind]);
     });
@@ -983,6 +1027,7 @@ function endBattle() {
     m.kills += u.kills;
   }
   run.party = run.party.filter(p => !dead.includes(p));
+  run.mana = Math.min(run.manaMax, st.mana != null ? st.mana : run.mana);
   // the epitaph needs the whole company, not just who is left
   for (const d of dead) {
     run.fallen = run.fallen || [];
@@ -1039,6 +1084,64 @@ function renderEpitaph(banked, won) {
   box.appendChild(tal);
 }
 
+// ------------------------------------------------------------- the prisoner
+function screenPrisoner() {
+  showScreen('modal');
+  const full = run.party.length >= 4;
+  if (full) tip('fullparty');
+  let pname, roles, hpFrac;
+  if (aftermath && aftermath.node === pendingNode && aftermath.pname) {
+    ({ pname, roles, hpFrac } = aftermath);
+  } else {
+    pname = run.rng.pick(NAMES);
+    const pool = run.rng.shuffle(meta.classes.slice());
+    roles = [];
+    for (let i = 0; i < 3 && i < pool.length; i++) roles.push(pool[i]);
+    while (roles.length < 3) roles.push(pool[0]);
+    hpFrac = run.rng.int(55, 95) / 100;
+    aftermath = { node: pendingNode, pname, roles, hpFrac };
+  }
+  $('mEyebrow').textContent = full ? 'A prisoner — the company is full at four' : 'A prisoner — choose what they were';
+  $('mTitle').textContent = 'CHAINED IN THE DARK';
+  $('mLede').innerHTML = 'Someone is shackled to the wall, half-starved but breathing. They say their name is <b>' + pname + '</b>. '
+    + 'They do not say what they were before the siege — <b>you decide what to believe.</b>';
+  const box = $('mChoices');
+  box.innerHTML = '';
+  for (const defId of roles) {
+    const c = CLASSES[defId];
+    const hp = Math.max(4, Math.round(c.hp * hpFrac));
+    const d = document.createElement('div');
+    d.className = 'choice';
+    d.innerHTML =
+      '<img class="cardP" src="' + portraitURL(defId, null, 84, 100) + '" alt="">' +
+      '<h3>“I was a ' + c.name.toLowerCase() + '.”</h3>' +
+      '<div class="role" style="color:' + (c.colour || 'var(--torch)') + '">' + c.name + ' · ' + c.role + '</div>' +
+      '<div class="stats mono">' + hp + '/' + c.hp + ' hp · ' + c.armor + ' armour · ' + c.mov + ' move</div>' +
+      c.abilities.map(a => '<div class="abLine"><b>' + ABILITIES[a].name + '</b> — ' + kw(ABILITIES[a].desc) + '</div>').join('') +
+      '<div class="blurb" style="margin-top:8px">' + c.blurb + '</div>';
+    d.addEventListener('click', () => {
+      const member = { id: uidCounter++, defId, name: pname, hp, maxHp: c.hp, kills: 0 };
+      if (full) { chooseWhoToLeave({ defId, name: pname, hp }); return; }
+      run.party.push(member);
+      if (c.reload) tip('reloadR');
+      if (settings.sound !== false) play('recruit');
+      advanceFrom(pendingNode);
+    });
+    box.appendChild(d);
+  }
+  $('mFoot').innerHTML = '';
+  const skip = document.createElement('button');
+  skip.textContent = 'Leave them chained (+30 gold from their effects)';
+  skip.addEventListener('click', () => { run.gold += 30; play('coin'); advanceFrom(pendingNode); });
+  $('mFoot').appendChild(skip);
+  const hint = document.createElement('div');
+  hint.className = 'hint';
+  hint.textContent = full
+    ? 'Taking them means leaving one of yours. That is a death, not a transfer.'
+    : 'Battles pay gold. Prisoners are the only way the company grows.';
+  $('mFoot').appendChild(hint);
+}
+
 // ---------------------------------------------------------- the battle report
 function screenBattleReport(report, gold, dead) {
   showScreen('modal');
@@ -1064,89 +1167,19 @@ function screenBattleReport(report, gold, dead) {
   $('mFoot').innerHTML = '';
   const go = document.createElement('button');
   go.className = 'primary';
-  go.textContent = 'See who’s willing (+' + gold + ' gold)';
-  go.addEventListener('click', () => screenAftermath(gold, dead));
+  go.textContent = 'Take the gold (+' + gold + ') and move on';
+  go.addEventListener('click', () => { tip('gold'); advanceFrom(pendingNode); });
   $('mFoot').appendChild(go);
+  const gh = document.createElement('div');
+  gh.className = 'hint';
+  gh.textContent = 'Gold buys relics, healing, and plate at the quartermaster — and dies with the run.';
+  $('mFoot').appendChild(gh);
 }
 
 let aftermath = null; // survives Never Mind round-trips
 
-function screenAftermath(gold, dead) {
-  showScreen('modal');
-  if (gold === undefined && aftermath) { gold = aftermath.gold; dead = aftermath.dead; }
-  const isBoss = pendingNode.type === 'boss';
-  const full = run.party.length >= 4;
-  if (full) tip('fullparty');
-  $('mEyebrow').textContent = full
-    ? 'Recruit — the company is full at four'
-    : 'Recruit — ' + (4 - run.party.length) + ' billet' + (4 - run.party.length === 1 ? '' : 's') + ' open';
-  $('mTitle').textContent = isBoss ? 'THE WAY DOWN IS OPEN' : 'THE GROUND IS YOURS';
+// (post-battle recruit offers removed: prisoners are the only source)
 
-  let lede = 'Three of them are still standing and willing. <b>Click one to bring them along</b>'
-    + (full ? ', and choose who you leave behind.' : '.')
-    + ' You took <span class="good mono">' + gold + '</span> gold off the bodies.';
-  if (dead.length) {
-    lede += '<br><span class="warn">' + dead.map(d => d.name + ' ' + run.rng.pick(DEATH_LINES)).join(' ') + '</span>';
-  }
-  $('mLede').innerHTML = lede;
-
-  // survivors offering to join
-  let offers;
-  if (aftermath && aftermath.node === pendingNode) {
-    offers = aftermath.offers;
-  } else {
-    const shuffled = run.rng.shuffle(meta.classes.slice());
-    offers = [];
-    for (let i = 0; i < 3; i++) {
-      const defId = shuffled[i % shuffled.length];
-      const c = CLASSES[defId];
-      offers.push({
-        defId, name: run.rng.pick(NAMES),
-        hp: Math.max(4, Math.round(c.hp * (run.rng.int(55, 100) / 100))),
-      });
-    }
-    aftermath = { node: pendingNode, gold, dead, offers };
-  }
-
-  const box = $('mChoices');
-  box.innerHTML = '';
-  for (const o of offers) {
-    const c = CLASSES[o.defId];
-    const have = run.party.some(p => p.defId === o.defId);
-    const d = document.createElement('div');
-    d.className = 'choice';
-    d.innerHTML =
-      '<img class="cardP" src="' + portraitURL(o.defId, null, 84, 100) + '" alt="">' +
-      '<h3>' + o.name + '</h3>' +
-      '<div class="role" style="color:' + (c.colour || 'var(--torch)') + '">' + c.name + ' · ' + c.role + (have ? ' · already have one' : '') + '</div>' +
-      '<div class="stats mono">' + o.hp + '/' + c.hp + ' hp · ' + c.armor + ' armour · ' + c.mov + ' move'
-      + '<br>hits ' + c.atk[0] + '–' + c.atk[1] + ' at range ' + (c.minRange > 1 ? c.minRange + '–' : '') + c.range + '</div>' +
-      c.abilities.map(a => '<div class="abLine"><b>' + ABILITIES[a].name + '</b> — ' + kw(ABILITIES[a].desc) + '</div>').join('') +
-      '<div class="blurb" style="margin-top:10px">' + c.blurb + '</div>';
-    d.addEventListener('click', () => {
-      if (full) { chooseWhoToLeave(o); return; }
-      run.party.push({ id: uidCounter++, defId: o.defId, name: o.name, hp: o.hp, maxHp: c.hp, kills: 0 });
-      if (c.reload) tip('reloadR');
-      if (settings.sound !== false) play('recruit');
-      advanceFrom(pendingNode);
-    });
-    box.appendChild(d);
-  }
-
-  const foot = $('mFoot');
-  foot.innerHTML = '';
-  const skip = document.createElement('button');
-  skip.textContent = 'Leave all three (+40 gold)';
-  skip.addEventListener('click', () => { run.gold += 40; play('coin'); advanceFrom(pendingNode); });
-  foot.appendChild(skip);
-  const hint = document.createElement('div');
-  hint.className = 'hint';
-  hint.innerHTML = full
-    ? 'Whoever you leave here does not follow, and does not survive. Gold is the safe answer.'
-    : 'Recruits arrive wounded and stay wounded until a camp or the quartermaster. '
-      + 'Nobody heals between fights on their own.';
-  foot.appendChild(hint);
-}
 
 function chooseWhoToLeave(offer) {
   const c = CLASSES[offer.defId];
@@ -1177,7 +1210,7 @@ function chooseWhoToLeave(offer) {
   foot.innerHTML = '';
   const back = document.createElement('button');
   back.textContent = 'Never mind';
-  back.addEventListener('click', () => screenAftermath());
+  back.addEventListener('click', () => screenPrisoner());
   foot.appendChild(back);
 }
 
@@ -1197,8 +1230,9 @@ function screenCamp() {
     d.addEventListener('click', fn);
     box.appendChild(d);
   };
-  opt('Sleep', 'Heal everyone', 'Every soldier recovers ' + Math.round(heal * 100) + '% of their maximum.', () => {
+  opt('Sleep', 'Heal everyone, +5 mana', 'Every soldier recovers ' + Math.round(heal * 100) + '% of their maximum, and the company recovers 5 mana.', () => {
     for (const p of run.party) p.hp = Math.min(p.maxHp, Math.round(p.hp + p.maxHp * heal));
+    run.mana = Math.min(run.manaMax, run.mana + 5);
     advanceFrom(pendingNode);
   });
   opt('Drill', 'One soldier, +6 maximum health', 'Permanent for the rest of the dig. Pick the one who keeps surviving.', () => {
@@ -1324,7 +1358,19 @@ function screenVendor() {
     });
     box.appendChild(d3);
 
-    $('mFoot').innerHTML = '<div class="hint">Gold: <span class="tally">' + run.gold + '</span></div>';
+    const priceMana = Math.round(45 * disc);
+    const d4 = document.createElement('div');
+    const manaFull = run.mana >= run.manaMax;
+    d4.className = 'choice' + (run.gold >= priceMana && !manaFull ? '' : ' locked');
+    d4.innerHTML = '<h3>Powder &amp; Incense<span class="costTag">' + priceMana + 'g</span></h3><div class="role">Service</div><div class="blurb">' + (manaFull ? 'The company is at full mana already.' : 'Restore 6 mana. He keeps the good stuff under the counter.') + '</div>';
+    if (run.gold >= priceMana && !manaFull) d4.addEventListener('click', () => {
+      run.gold -= priceMana;
+      run.mana = Math.min(run.manaMax, run.mana + 6);
+      render();
+    });
+    box.appendChild(d4);
+
+    $('mFoot').innerHTML = '<div class="hint">Gold: <span class="tally">' + run.gold + '</span> · Mana: <span class="tally">' + run.mana + '/' + run.manaMax + '</span></div>';
     const go = document.createElement('button');
     go.textContent = 'Move on';
     go.addEventListener('click', () => { advanceFrom(pendingNode); });
@@ -1376,8 +1422,8 @@ function runLost(dead) {
   again.textContent = 'Send another company';
   again.addEventListener('click', screenCreator);
   const muster = document.createElement('button');
-  muster.textContent = 'The Roster';
-  muster.addEventListener('click', screenRoster);
+  muster.textContent = 'Unlocks';
+  muster.addEventListener('click', screenUnlocks);
   const home = document.createElement('button');
   home.textContent = 'Back to the surface';
   home.addEventListener('click', goTitle);
@@ -1408,13 +1454,13 @@ function runWon() {
 }
 
 // ================================================================ the roster
-function screenRoster() {
+function screenUnlocks() {
   showScreen('modal');
   const render = () => {
-    $('mEyebrow').textContent = 'The company, past and possible';
-    $('mTitle').textContent = 'THE ROSTER';
-    $('mLede').innerHTML = 'Everyone who can fight for you, and everyone who has. '
-      + 'You bank <b>tallies</b> when a run ends — spending them here adds classes and relics to what future runs can find. '
+    $('mEyebrow').textContent = 'Spend tallies — permanent, between runs';
+    $('mTitle').textContent = 'UNLOCKS';
+    $('mLede').innerHTML = 'You bank <b>tallies</b> when a run ends. Spending them here adds classes and relics '
+      + 'to what future runs can find — more OPTIONS in the dark, never raw power. '
       + 'You have <span class="tally">' + meta.tallies + '</span>.';
     const box = $('mChoices');
     box.innerHTML = '';
@@ -1465,36 +1511,6 @@ function screenRoster() {
       if (can) d.addEventListener('click', () => {
         meta.tallies -= rl.cost; meta.relics.push(rl.id); saveMeta(); play('coin'); render();
       });
-      box.appendChild(d);
-    }
-
-    // ---- those who served: the historical record
-    section('Those Who Served');
-    const hist = (meta.history || []).slice(-24).reverse();
-    if (!hist.length) {
-      const d = document.createElement('div');
-      d.className = 'choice locked';
-      d.innerHTML = '<h3>Nobody yet</h3><div class="role">The ledger is blank</div>'
-        + '<div class="blurb">Every soldier who fights for a company of yours is recorded here — and how it ended for them.</div>';
-      box.appendChild(d);
-    }
-    const FATES = {
-      fell: (h) => ['Fell on floor ' + h.floor, 'var(--blood)'],
-      left: (h) => ['Left in the dark, floor ' + h.floor, 'var(--ink-far)'],
-      returned: () => ['Walked out alive', 'var(--gold)'],
-      lost: (h) => ['Lost with the company, floor ' + h.floor, 'var(--blood)'],
-    };
-    for (const h of hist) {
-      const c = h.defId === 'captain' ? { name: 'Captain', colour: '#e0b45c' } : (CLASSES[h.defId] || { name: h.defId });
-      const [fateText, fateCol] = (FATES[h.fate] || (() => [h.fate, 'var(--ink-dim)']))(h);
-      const d = document.createElement('div');
-      d.className = 'choice locked';
-      d.innerHTML =
-        '<img class="cardP" style="border-color:' + (c.colour || '#3c3128') + '" src="' + portraitURL(h.defId, h.custom || null, 84, 100) + '" alt="">' +
-        '<h3>' + h.name + '</h3>' +
-        '<div class="role" style="color:' + (c.colour || 'var(--torch)') + '">' + c.name + '</div>' +
-        '<div class="blurb" style="color:' + fateCol + ';font-style:normal">' + fateText + '</div>' +
-        (h.kills ? '<div class="stats mono">' + h.kills + ' kills</div>' : '');
       box.appendChild(d);
     }
 
@@ -1552,6 +1568,9 @@ const TIPS = {
   death: ['Nobody comes back', 'That soldier is gone for the run, and the next fights scale to the company you still have. Retreat is a real option — a hurt soldier pulled back is a soldier kept.'],
   tallies: ['Tallies', 'The one thing that survives a run. Spend them on THE ROSTER to add classes and relics to what future runs can find.'],
   boss: ['The floor’s master', 'Bosses hit harder, call for help, and hold the only stair down. Spend your cooldowns — there is nothing after this worth saving them for.'],
+  prisoner: ['Prisoners', 'This is how the company grows — battles pay gold, prisoners pay PEOPLE. You cannot pick who they are, only what they turn out to be.'],
+  mana: ['Mana', 'Abilities cost MANA from one pool the whole company shares — the number under the party list. It does not come back on its own: sleep at camps, buy incense from the quartermaster, or descend a floor.'],
+  gold: ['Gold', 'Gold is this run’s money and it DIES with the run. Spend it at the quartermaster on relics, healing, and plate — leaving with full pockets is leaving it in the dirt.'],
   recap: ['The three laws', 'Orange tiles WILL be hit — never stand in them. A flanked foe takes +3 from behind. And nobody you lose comes back.'],
 };
 
@@ -1755,6 +1774,10 @@ document.addEventListener('pointerdown', () => setVolumes(settings.volMaster, se
       settings.screenShake !== false, () => settings.screenShake = settings.screenShake === false);
     card('Confirm end of turn', 'Ask if someone has not moved', 'Stops you ending the round with a soldier still standing there doing nothing.',
       settings.confirmEnd, () => settings.confirmEnd = !settings.confirmEnd);
+    card('Auto end turn', 'No dead air', 'When every soldier has acted, the round ends on its own instead of waiting for Space.',
+      settings.autoEnd !== false, () => settings.autoEnd = settings.autoEnd === false);
+    card('Battle animations', 'The blow, writ large', 'Big cut-in duels on every hit, the way the old war games did it. Off skips straight to the numbers.',
+      settings.duelAnims !== false, () => settings.duelAnims = settings.duelAnims === false);
 
     $('mFoot').innerHTML = '';
     const back = document.createElement('button');
@@ -1783,8 +1806,8 @@ const INTRO = [
   },
   {
     h: 'YOUR COMPANY',
-    p: 'You go down alone. Everyone you will fight beside is already down there — deserters, prisoners, '
-      + 'surgeons, whoever is still standing when the dust settles. Three of them will offer to join after every fight. '
+    p: 'You go down alone. Everyone you will fight beside is chained down there already — both armies took '
+      + 'prisoners for eleven years and forgot to stop. Free them, decide what they were, and they are yours. '
       + 'Four is all the rations stretch to, and nobody you lose comes back.',
   },
 ];
@@ -1935,7 +1958,7 @@ $('btnSettings').addEventListener('click', screenSettings);
   $('btnAbandon').before(m);
 })();
 $('menuBtn').addEventListener('click', screenSettings);
-$('btnMuster').addEventListener('click', screenRoster);
+$('btnMuster').addEventListener('click', screenUnlocks);
 $('threatBtn').addEventListener('click', toggleThreat);
 $('endBtn').addEventListener('click', () => {
   if (settings.confirmEnd && st && st.phase === 'player') {
@@ -2012,7 +2035,9 @@ function frame(ts) {
 function step(dt) {
   if ($('title').classList.contains('on')) { drawTitleFx(dt); return; }
   if (!st || !$('battle').classList.contains('on')) return;
+  if (view.duel && performance.now() - view.duel.t0 > view.duel.dur) view.duel = null;
   if (st.phase === 'enemy') {
+    if (view.duel) { R.draw(ctx, st, view); tickTutorial(); return; }
     enemyTimer -= dt;
     if (enemyTimer <= 0) {
       const more = E.enemyActOne(st);
@@ -2050,8 +2075,13 @@ function step(dt) {
       else if (f.kind === 'sweep') play('sweep', o);
       else if (f.kind === 'heal') play('heal', o);
       else if (f.kind === 'snd') { play(f.s, o); if (f.s === 'warn') tip('windup'); }
+      else if (f.kind === 'duel') {
+        if (settings.duelAnims !== false && !settings.reducedMotion && !view.duel) {
+          view.duel = Object.assign({}, f, { t0: performance.now(), dur: 1150 });
+        }
+      }
     }
-    st.fx = st.fx.filter(f => f.kind !== 'snd');
+    st.fx = st.fx.filter(f => f.kind !== 'snd' && f.kind !== 'duel');
     const walker = st.units.find(u => u.alive && u.anim && u.anim.kind === 'walk');
     if (walker) {
       if (!step.lastStepSnd || performance.now() - step.lastStepSnd > 130) {
@@ -2068,6 +2098,17 @@ function step(dt) {
         play('heartbeat');
       }
     }
+  }
+  if (settings.sound === false) {
+    for (const f of st.fx) {
+      if (f.kind === 'duel' && !f.heard) {
+        f.heard = true;
+        if (settings.duelAnims !== false && !settings.reducedMotion && !view.duel) {
+          view.duel = Object.assign({}, f, { t0: performance.now(), dur: 1150 });
+        }
+      }
+    }
+    st.fx = st.fx.filter(f => f.kind !== 'duel' && f.kind !== 'snd');
   }
   view.shakeEnabled = settings.screenShake !== false && !settings.reducedMotion;
   view.reducedMotion = !!settings.reducedMotion;
@@ -2102,6 +2143,7 @@ window.CM = {
   // reports the pre-wipe object forever
   get meta() { return meta; },
   get settings() { return settings; },
+  get view() { return view; },
   newRun, goTitle,
   wipeMeta() { meta = DEFAULT_META(); saveMeta(); clearRun(); goTitle(); },
   sim, simOne, makeCaptain, randomCaptain, defaultCaptain,
@@ -2116,7 +2158,7 @@ window.CM = {
     screen: () => ['title', 'mapScreen', 'modal', 'creator', 'battle'].find(s => $(s).classList.contains('on')),
     modal: () => ({ title: $('mTitle').textContent, lede: $('mLede').textContent, choices: $('mChoices').children.length }),
     clickChoice: (i) => $('mChoices').children[i].click(),
-    clickFoot: (i) => $('mFoot').children[i].click(),
+    clickFoot: (i) => $('mFoot').querySelectorAll('button')[i || 0].click(),
     view: () => ({ mode, selected: view.selected, moves: view.moveTiles ? view.moveTiles.length : 0, targets: view.targetTiles ? view.targetTiles.length : 0 }),
     party: () => run.party.map(p => p.defId + ':' + p.name + ':' + p.hp),
     forceWin: () => { st.units.filter(u => u.side === 'enemy').forEach(u => { u.alive = false; u.hp = 0; }); E.checkOver(st); },
@@ -2142,7 +2184,7 @@ function botAct(bst, u) {
   if (!foes.length) { E.wait(bst, u); return; }
 
   // healer first: patch anyone under half
-  if (u.abilities.includes('stitch') && E.abilityReady(u, 'stitch')) {
+  if (u.abilities.includes('stitch') && E.abilityReady(u, 'stitch', st)) {
     const hurt = bst.units.filter(x => x.alive && x.side === 'player' && x.hp < x.maxHp * 0.55)
       .sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
     if (hurt) {
@@ -2171,7 +2213,7 @@ function botAct(bst, u) {
       }
       for (const aid of u.abilities) {
         const ab = ABILITIES[aid];
-        if (!E.abilityReady(u, aid)) continue;
+        if (!E.abilityReady(u, aid, st)) continue;
         if (!ab.dmg || ab.target !== 'enemy') continue;
         const R2 = ab.range || 1, m2 = ab.minRange || 1;
         if (d < m2 || d > R2) continue;

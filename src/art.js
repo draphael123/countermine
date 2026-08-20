@@ -53,11 +53,13 @@ function drawFigure(g, spec, pose) {
   const lean = pose === 'flinch' ? -1 : 0;    // body recoils off the blow
   const cx = 13 + lean;                // centre column (leans on flinch)
 
-  // ---- legs + boots (scissor on walk frames)
-  P(cx - 3 - step, G - 4, 2, 4, clothD);
-  P(cx + 1 + step, G - 4, 2, 4, clothD);
-  P(cx - 3 - step, G - 1, 2, 1, '#191410');
-  P(cx + 1 + step, G - 1, 2, 1, '#191410');
+  // ---- legs + boots (scissor on walk frames); robes fall past them
+  if (!spec.robe) {
+    P(cx - 3 - step, G - 4, 2, 4, clothD);
+    P(cx + 1 + step, G - 4, 2, 4, clothD);
+    P(cx - 3 - step, G - 1, 2, 1, '#191410');
+    P(cx + 1 + step, G - 1, 2, 1, '#191410');
+  }
 
   // ---- weapon behind the body
   drawWeapon(P, cx + thrust, G, spec, metal, metalL, true);
@@ -74,6 +76,14 @@ function drawFigure(g, spec, pose) {
     const hw = Math.round(shW + (waW - shW) * (r / 10));
     P(cx - hw, 14 + r, 1, 1, clothL);
     P(cx + hw - 1, 14 + r, 1, 1, clothD);
+  }
+  // robe skirt: widen below the waist down to the ground
+  if (spec.robe) {
+    for (let r = 0; r < 7; r++) {
+      const hw = 3 + ((r / 2) | 0);
+      P(cx - hw + (r > 3 ? step : 0), 23 + r, hw * 2, 1, r % 3 === 2 ? clothD : cloth);
+    }
+    P(cx - 5, 29, 10, 1, shade(cloth, -34));
   }
   // tabard
   if (spec.tabard) {
@@ -137,6 +147,56 @@ function drawFigure(g, spec, pose) {
     P(cx, pj, 1, 2, spec.plume);
     P(cx + 1, pj - 1, 2, 2, spec.plume);
     P(cx + 3, pj - 2, 1, 2, shade(spec.plume, -20));
+  }
+
+  // ---- the one feature that names the figure at a glance
+  const ft = spec.feature;
+  if (ft === 'hunch') {                       // starveling: spine showing over the shoulder
+    P(cx + 1, 12, 3, 2, clothD);
+    P(cx + 2, 11, 2, 1, shade(clothD, -14));
+  } else if (ft === 'weeds') {                // drowned: sump-weed hanging off it
+    const wd = '#3a5c40', wdD = '#2a4530';
+    P(cx - 4, 13, 1, 4, wd); P(cx + 3, 14, 1, 5, wdD);
+    P(cx - 2, 12, 1, 3, wdD); P(cx + 1, 13, 1, 2, wd);
+  } else if (ft === 'rivets') {               // ironhusk: seam of bright rivets down the plate
+    for (let r = 0; r < 4; r++) P(cx - 1 + (r % 2), 15 + r * 2, 1, 1, metalL);
+    P(cx - 4, 6, 1, 2, metalD); P(cx + 3, 6, 1, 2, metalD);   // stub horns
+  } else if (ft === 'backbell') {             // bellman: the bell rides a back-pole
+    P(cx + 3, 4, 1, 10, '#4a3d2a');
+    P(cx + 2, 2, 3, 2, spec.metal); P(cx + 2, 4, 3, 1, shade(spec.metal, -25));
+    P(cx + 3, 5, 1, 1, shade(spec.metal, -40));
+  } else if (ft === 'banner') {               // trencher: still carries the company banner
+    P(cx - 4, 3, 1, 12, '#4a3d2a');
+    P(cx - 8, 4, 4, 5, shade(spec.cloth, -8));
+    P(cx - 8, 8, 2, 1, shade(spec.cloth, -8)); P(cx - 6, 9, 1, 1, shade(spec.cloth, -20)); // torn hem
+  } else if (ft === 'horns') {                // breacher: the helm grew horns
+    P(cx - 5, 4, 2, 3, metalD); P(cx - 6, 3, 2, 2, metalD);
+    P(cx + 3, 4, 2, 3, metalD); P(cx + 4, 3, 2, 2, metalD);
+    P(cx - 6, 3, 1, 1, metalL); P(cx + 5, 3, 1, 1, metalL);
+  } else if (ft === 'bells3') {               // choirmaster: three voices across the shoulders
+    for (const bx of [-5, -1, 3]) {
+      P(cx + bx, 12, 2, 2, spec.metal); P(cx + bx, 14, 2, 1, shade(spec.metal, -30));
+    }
+  } else if (ft === 'chains') {               // undermaster: dragging its chains
+    P(cx - 6, 16, 1, 6, '#5c5852'); P(cx - 6, 21, 2, 1, '#5c5852');
+    P(cx + 5, 15, 1, 8, '#514d47'); P(cx + 4, 22, 2, 1, '#514d47');
+    P(cx - 6, 16, 1, 1, '#8a857c'); P(cx + 5, 15, 1, 1, '#8a857c');
+  } else if (ft === 'firepot') {              // lobber: the lit pot, the only warm light down here
+    P(cx + 4, 19, 3, 3, '#3a2c22'); P(cx + 4, 19, 3, 1, '#57402e');
+    P(cx + 5, 18, 1, 1, '#e08a3c'); P(cx + 5, 17, 1, 1, '#f2c96a');
+  } else if (ft === 'cracks') {               // pyreling: powder-light through the seams
+    P(cx - 2, 17, 1, 3, '#e08a3c'); P(cx + 1, 15, 1, 2, '#e08a3c');
+    P(cx - 1, 20, 2, 1, '#f2c96a'); P(cx, 10, 1, 2, '#e08a3c');
+  } else if (ft === 'quiver') {               // crossbowman: bolts over the shoulder
+    P(cx + 3, 12, 3, 5, '#4a3626');
+    for (const qx of [3, 4, 5]) P(cx + qx, 11, 1, 1, '#c9b183');
+  } else if (ft === 'scarf') {                // cutthroat: face wrapped to the eyes
+    P(cx - 2, 11, 4, 2, '#6e2a2a'); P(cx - 3, 12, 1, 3, '#5a2222');
+  } else if (ft === 'rope') {                 // flagellant: the knotted cord, worn openly
+    P(cx - waW - 1, 21, waW * 2 + 2, 1, '#8a6a3a');
+    P(cx + waW - 1, 22, 1, 4, '#8a6a3a'); P(cx + waW - 1, 26, 2, 1, '#6e5430');
+  } else if (ft === 'powderhorn') {           // sapper: the horn that ends arguments
+    P(cx - 5, 18, 3, 2, '#7c6a4c'); P(cx - 6, 17, 2, 2, '#5c4e38'); P(cx - 4, 20, 1, 1, '#9c8a64');
   }
 
   // ---- weapon in front
@@ -246,25 +306,28 @@ export const FIGURES = {
   // players -- warmer cloth, colours of a garrison that has been down here a while
   serjeant: { cloth: '#5a4b3a', metal: '#8a8478', helm: 'conical', weapon: 'sword', tabard: '#8c3a2e', bulk: 1.05 },
   pavisier: { cloth: '#4b4a44', metal: '#8f8b80', helm: 'bucket', weapon: 'shield', bulk: 1.25, tall: 1.02 },
-  crossbow: { cloth: '#54463c', metal: '#8a8478', helm: 'round', weapon: 'bow', bulk: 0.92 },
+  crossbow: { cloth: '#54463c', metal: '#8a8478', helm: 'round', weapon: 'bow', bulk: 0.92, feature: 'quiver' },
   surgeon: { cloth: '#3f3a3a', metal: '#7c7870', helm: 'hood', weapon: 'satchel', bulk: 0.9 },
-  sapper: { cloth: '#4e4335', metal: '#857f72', helm: 'round', weapon: 'pick', bulk: 0.98 },
+  sapper: { cloth: '#4e4335', metal: '#857f72', helm: 'round', weapon: 'pick', bulk: 0.98, feature: 'powderhorn' },
   billman: { cloth: '#4a4f42', metal: '#8a8478', helm: 'conical', weapon: 'pole', bulk: 1.0, tall: 1.04 },
-  cutthroat: { cloth: '#33302f', metal: '#9a958a', helm: 'hood', weapon: 'knife', bulk: 0.85, tall: 0.96 },
-  flagellant: { cloth: '#584f45', metal: '#6f6a62', helm: 'hood', weapon: 'staff', bulk: 0.92, tabard: '#7a2a30' },
+  cutthroat: { cloth: '#33302f', metal: '#9a958a', helm: 'hood', weapon: 'knife', bulk: 0.85, tall: 0.96, feature: 'scarf' },
+  flagellant: { cloth: '#584f45', metal: '#6f6a62', helm: 'hood', weapon: 'staff', bulk: 0.92, tabard: '#7a2a30', feature: 'rope' },
 
   // the other army -- colder, greyer, further gone
-  starveling: { cloth: '#565845', metal: '#5f5c54', helm: 'round', weapon: 'knife', bulk: 0.8, tall: 0.9 },
-  trencher: { cloth: '#414e58', metal: '#6b7480', helm: 'bucket', weapon: 'pole', bulk: 1.06 },
+  starveling: { cloth: '#565845', metal: '#5f5c54', helm: 'round', weapon: 'knife', bulk: 0.8, tall: 0.9, feature: 'hunch' },
+  trencher: { cloth: '#414e58', metal: '#6b7480', helm: 'bucket', weapon: 'pole', bulk: 1.06, feature: 'banner' },
   arbalest: { cloth: '#5a4e42', metal: '#6f6a60', helm: 'round', weapon: 'bow', bulk: 0.9 },
-  ironhusk: { cloth: '#4a4744', metal: '#57534e', helm: 'bucket', weapon: 'maul', bulk: 1.35, tall: 1.1 },
+  ironhusk: { cloth: '#4a4744', metal: '#57534e', helm: 'bucket', weapon: 'maul', bulk: 1.35, tall: 1.1, feature: 'rivets' },
   hound: { cloth: '#6e5a4e', beast: true },
-  bellman: { cloth: '#6b5c3d', metal: '#9b8455', helm: 'conical', weapon: 'bell', bulk: 0.95 },
-  drowned: { cloth: '#3d5451', metal: '#4f6b6b', helm: 'hood', weapon: 'knife', bulk: 1.0 },
+  bellman: { cloth: '#6b5c3d', metal: '#9b8455', helm: 'conical', weapon: 'bell', bulk: 0.95, feature: 'backbell' },
+  drowned: { cloth: '#3d5451', metal: '#4f6b6b', helm: 'hood', weapon: 'knife', bulk: 1.0, feature: 'weeds' },
+  lobber: { cloth: '#4e4438', metal: '#6a5c48', helm: 'kettle', weapon: 'knife', bulk: 0.95, feature: 'firepot' },
+  chanter: { cloth: '#3a4a48', metal: '#55706c', helm: 'hood', weapon: 'staff', robe: true, bulk: 0.95, feature: 'weeds' },
+  pyreling: { cloth: '#3f3630', metal: '#57534e', helm: 'round', weapon: 'knife', bulk: 0.78, tall: 0.88, feature: 'cracks' },
 
-  breacher: { cloth: '#5a3a30', metal: '#7a4b3a', helm: 'bucket', weapon: 'maul', bulk: 1.7, tall: 1.3 },
-  choirmaster: { cloth: '#5f4d2c', metal: '#9b7d3a', helm: 'conical', weapon: 'bell', bulk: 1.5, tall: 1.25, tabard: '#8a6a20' },
-  undermaster: { cloth: '#4a2d36', metal: '#7a3a4b', helm: 'hood', weapon: 'pole', bulk: 1.6, tall: 1.35, tabard: '#5a1f2a' },
+  breacher: { cloth: '#5a3a30', metal: '#7a4b3a', helm: 'bucket', weapon: 'maul', bulk: 1.7, tall: 1.3, feature: 'horns' },
+  choirmaster: { cloth: '#5f4d2c', metal: '#9b7d3a', helm: 'conical', weapon: 'bell', bulk: 1.5, tall: 1.25, tabard: '#8a6a20', feature: 'bells3' },
+  undermaster: { cloth: '#4a2d36', metal: '#7a3a4b', helm: 'hood', weapon: 'pole', bulk: 1.6, tall: 1.35, tabard: '#5a1f2a', feature: 'chains' },
 };
 
 // sprites for a SPEC (the creator's live look) or a def id; both share bakes
@@ -296,7 +359,7 @@ export function unitSprite(defId, custom, frame) {
   const base = FIGURES[defId] || FIGURES.starveling;
   const spec = custom ? Object.assign({}, base, custom) : base;
   const keyBase = defId + ':' +
-    (custom ? [custom.cloth, custom.tabard, custom.helm, custom.weapon, custom.metal, custom.plume, custom.bulk].join('|') : '-');
+    (custom ? [custom.cloth, custom.tabard, custom.helm, custom.weapon, custom.metal, custom.plume, custom.bulk, custom.robe].join('|') : '-');
   return spriteForSpec(spec, frame || 'idle', keyBase);
 }
 
@@ -304,7 +367,7 @@ export function unitSprite(defId, custom, frame) {
 const portraitCache = new Map();
 export function portraitURL(defId, custom, w = 76, h = 92) {
   const key = 'pu:' + defId + ':' + w + 'x' + h + ':' +
-    (custom ? [custom.cloth, custom.tabard, custom.helm, custom.weapon, custom.metal, custom.plume, custom.bulk].join('|') : '-');
+    (custom ? [custom.cloth, custom.tabard, custom.helm, custom.weapon, custom.metal, custom.plume, custom.bulk, custom.robe].join('|') : '-');
   if (portraitCache.has(key)) return portraitCache.get(key);
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
@@ -351,7 +414,7 @@ export function drawPortrait(g, W, H, spec, t, swing) {
   g.fill();
   g.restore();
   const spr = spriteForSpec(spec, 'idle',
-    'live:' + [spec.cloth, spec.tabard, spec.helm, spec.weapon, spec.metal, spec.plume, spec.bulk].join('|'));
+    'live:' + [spec.cloth, spec.tabard, spec.helm, spec.weapon, spec.metal, spec.plume, spec.bulk, spec.robe].join('|'));
   const sw = swing || 0;
   const lungeX = Math.sin(sw * Math.PI) * 14;
   const s = Math.min((W - 20) / spr.width, (H - 34) / spr.height) * 1.55;

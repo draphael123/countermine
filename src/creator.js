@@ -1,6 +1,6 @@
 // COUNTERMINE -- captain creator. A past, an allotment, one signature, and a
 // bearing. Kept out of game.js: it owns its own screen and hands back a config.
-import { CAPTAIN_BASE, ALLOTMENT, STAT_LINES, SIGNATURES, ORIGINS, ABILITIES, NAMES } from './data.js';
+import { CAPTAIN_BASE, ALLOTMENT, STAT_LINES, SIGNATURES, ORIGINS, CALLINGS, ABILITIES, NAMES } from './data.js';
 import { drawPortrait, CUSTOM_OPTIONS, FIGURES } from './art.js';
 import { play } from './sfx.js';
 
@@ -22,6 +22,7 @@ export function defaultCaptain() {
   return {
     name: 'Vetch',
     stats: { vigour: 2, haste: 1, plate: 1, might: 2 },
+    calling: 'knight',
     sig: 'sig_hold',   // self-cast: never a dead button on a solo start
     origin: 'deserter',
     look: { helm: 'conical', weapon: 'sword', cloth: '#5a4b3a', tabard: '#8c3a2e', metal: '#938c7e', plume: '', bulk: 1.08 },
@@ -38,14 +39,17 @@ export function randomCaptain(rand = Math.random) {
     const line = STAT_LINES.find(s => s.id === k);
     if (stats[k] < line.max) { stats[k]++; left--; }
   }
+  const call = pick(CALLINGS);
   return {
     name: pick(NAMES),
     stats,
-    sig: pick(SIGNATURES),
+    calling: call.id,
+    sig: pick(call.sigs),
     origin: pick(ORIGINS).id,
     look: {
-      helm: pick(CUSTOM_OPTIONS.helm).id,
-      weapon: pick(CUSTOM_OPTIONS.weapon).id,
+      helm: call.look.helm,
+      weapon: call.look.weapon,
+      robe: call.look.robe,
       cloth: pick(CUSTOM_OPTIONS.cloth),
       tabard: pick(CUSTOM_OPTIONS.tabard),
       metal: pick(CUSTOM_OPTIONS.metal),
@@ -59,12 +63,17 @@ export function randomCaptain(rand = Math.random) {
 // number on the unit, never a hidden multiplier.
 export function makeCaptain(cfg) {
   const s = cfg.stats;
+  const call = CALLINGS.find(x => x.id === cfg.calling) || CALLINGS[0];
+  const b = call.base;
   const def = Object.assign({}, CAPTAIN_BASE, {
-    hp: CAPTAIN_BASE.hp + s.vigour * 4,
-    mov: CAPTAIN_BASE.mov + s.haste,
-    armor: CAPTAIN_BASE.armor + s.plate,
-    atk: [CAPTAIN_BASE.atk[0] + s.might * 2, CAPTAIN_BASE.atk[1] + s.might * 2],
-    abilities: [cfg.sig],
+    name: call.name, role: call.name,
+    hp: b.hp + s.vigour * 4,
+    mov: b.mov + s.haste,
+    armor: b.armor + s.plate,
+    range: b.range, minRange: b.minRange || 1,
+    flankBonus: b.flankBonus || 0,
+    atk: [b.atk[0] + s.might * 2, b.atk[1] + s.might * 2],
+    abilities: [call.sigs.includes(cfg.sig) ? cfg.sig : call.sigs[0]],
     blurb: CAPTAIN_BASE.blurb,
   });
   return { name: cfg.name || 'Captain', def, custom: cfg.look, cfg };
@@ -129,6 +138,28 @@ function bindOnce() {
 function render() {
   $('capName').value = state.name;
 
+  // ---- calling: pick what you ARE before what you carry
+  const cb = $('callingRow');
+  if (cb) {
+    cb.innerHTML = '';
+    for (const call of CALLINGS) {
+      const b = document.createElement('button');
+      b.className = 'callingOpt' + (state.calling === call.id ? ' on' : '');
+      b.innerHTML = '<b>' + call.glyph + ' ' + call.name + '</b><span>' + call.blurb + '</span>';
+      b.addEventListener('click', () => {
+        state.calling = call.id;
+        state.sig = call.sigs[0];
+        state.look.weapon = call.look.weapon;
+        state.look.helm = call.look.helm;
+        state.look.robe = call.look.robe;
+        play(WEAPON_SOUND[call.look.weapon] || 'hit');
+        swingStart = performance.now();
+        render();
+      });
+      cb.appendChild(b);
+    }
+  }
+
   // ---- origins: the past you carry down
   const ob = $('originList');
   ob.innerHTML = '';
@@ -185,17 +216,11 @@ function render() {
   // ---- signatures, grouped by school
   const sl = $('spellList');
   sl.innerHTML = '';
-  const groups = [
-    { label: 'Martial', ids: ['sig_rally', 'sig_hold', 'sig_hew'], col: '#c9803c' },
-    { label: 'Arcane', ids: ['sig_ember', 'sig_grave', 'sig_oath'], col: '#8a7fd0' },
-  ];
-  for (const grp of groups) {
-    const h = document.createElement('div');
-    h.className = 'spellGroup';
-    h.style.color = grp.col;
-    h.textContent = grp.label;
-    sl.appendChild(h);
-    for (const id of grp.ids) {
+  const callNow = CALLINGS.find(x => x.id === state.calling) || CALLINGS[0];
+  if (!callNow.sigs.includes(state.sig)) state.sig = callNow.sigs[0];
+  {
+    const grp = { col: '#c9803c' };
+    for (const id of callNow.sigs) {
       const a = ABILITIES[id];
       const b = document.createElement('button');
       b.className = 'spellOpt' + (state.sig === id ? ' on' : '');

@@ -665,6 +665,68 @@ export function draw(ctx, st, view) {
     ctx.restore();
   }
 
+  // ---- the duel cut-in: the blow, writ large
+  if (view.duel) {
+    const d2 = view.duel;
+    const p = Math.min(1, (rawT - d2.t0) / d2.dur);
+    const fadeIn = Math.min(1, p * 6), fadeOut = p > 0.86 ? (1 - p) / 0.14 : 1;
+    const aDuel = Math.min(fadeIn, fadeOut);
+    ctx.save();
+    ctx.globalAlpha = 0.82 * aDuel;
+    ctx.fillStyle = '#080605';
+    ctx.fillRect(0, 0, CW, CH);
+    ctx.globalAlpha = aDuel;
+    // the ground they meet on
+    const gy = CH * 0.68;
+    const strip = ctx.createLinearGradient(0, gy - 8, 0, gy + 40);
+    strip.addColorStop(0, '#2b2420');
+    strip.addColorStop(1, '#0d0a08');
+    ctx.fillStyle = strip;
+    ctx.fillRect(CW * 0.14, gy, CW * 0.72, 34);
+    ctx.fillStyle = 'rgba(255,236,205,0.08)';
+    ctx.fillRect(CW * 0.14, gy, CW * 0.72, 2);
+    const SCALE = 2.3;
+    const atkSpr = unitSprite(d2.a.defId, d2.a.custom, p > 0.34 && p < 0.62 ? 'strike' : 'idle');
+    const defSpr = unitSprite(d2.d.defId, d2.d.custom, p > 0.44 && p < 0.8 ? 'flinch' : 'idle');
+    // attacker enters from the left, lunges on the beat
+    const aLeft = d2.aSide !== 'enemy';           // your blows read left-to-right, theirs right-to-left
+    const dirD = aLeft ? 1 : -1;
+    const slide = Math.min(1, p / 0.28);
+    const lungePx = p > 0.34 && p < 0.62 ? Math.sin((p - 0.34) / 0.28 * Math.PI) * 60 * dirD : 0;
+    const ax = CW * (aLeft ? 0.30 : 0.70) - (1 - slide) * 220 * dirD + lungePx;
+    const dxp = CW * (aLeft ? 0.70 : 0.30) + (p > 0.44 && p < 0.62 ? Math.sin((p - 0.44) / 0.18 * Math.PI) * 22 * dirD : 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.save();
+    ctx.translate(ax, gy + 6);
+    ctx.scale(aLeft ? SCALE : -SCALE, SCALE);
+    ctx.drawImage(atkSpr, -atkSpr.width / 2, -atkSpr.height + 4);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(dxp, gy + 6);
+    ctx.scale(aLeft ? -SCALE : SCALE, SCALE);
+    ctx.drawImage(defSpr, -defSpr.width / 2, -defSpr.height + 4);
+    ctx.restore();
+    ctx.imageSmoothingEnabled = true;
+    // the number lands with the blow
+    if (p > 0.46) {
+      const np = Math.min(1, (p - 0.46) / 0.3);
+      ctx.font = 'bold ' + (d2.dmg >= 10 ? 44 : 34) + 'px "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = '#000';
+      const ny = gy - 150 - np * 22;
+      ctx.strokeText('-' + d2.dmg, dxp, ny);
+      ctx.fillStyle = d2.kill ? '#ff6a4a' : '#ffe0a0';
+      ctx.fillText('-' + d2.dmg, dxp, ny);
+      if (d2.kill && p > 0.62) {
+        ctx.font = '20px "IM Fell", Georgia, serif';
+        ctx.fillStyle = '#c8a898';
+        ctx.fillText('S L A I N', dxp, ny + 34);
+      }
+    }
+    ctx.restore();
+  }
+
   // ---- the excavated edge
   ctx.drawImage(edgeFrame(), 0, 0);
 

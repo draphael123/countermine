@@ -72,6 +72,7 @@ export function makeUnit(defId, side, x, y, opts = {}) {
     boss: !!def.boss, summoned: !!opts.summoned,
     custom: opts.custom || null, isCaptain: !!def.isCaptain,
     alive: true, kills: 0, dmgDealt: 0, dmgTaken: 0,
+    explode: def.explode || null,
   };
   if (opts.hp != null) u.hp = Math.min(opts.hp, u.maxHp);
   for (const aid of u.abilities) {
@@ -90,6 +91,8 @@ export function newBattle(cfg) {
     grid: null, units: [], bombs: [], fx: [],
     phase: 'deploy', round: 1, log: [],
     relics: new Set(cfg.relics || []),
+    mana: cfg.mana != null ? cfg.mana : 99,
+    manaMax: cfg.manaMax != null ? cfg.manaMax : 99,
     deployZone: [], selected: null, over: null,
     turnEvents: [],
   };
@@ -488,6 +491,18 @@ export function killUnit(st, target, source) {
     face: target.face || (target.side === 'enemy' ? -1 : 1), t: 0 });
   st.fx.push({ kind: 'shake', mag: 5, t: 0 });
   logLine(st, target.name + ' falls.');
+  if (target.explode && !target.exploded) {
+    target.exploded = true;
+    const [lo, hi] = target.explode;
+    st.fx.push({ kind: 'boom', x: target.x, y: target.y, t: 0 });
+    st.fx.push({ kind: 'snd', s: 'boom' });
+    logLine(st, 'The powder in ' + target.name + ' goes off.');
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+      if (!dx && !dy) continue;
+      const o = occupant(st, target.x + dx, target.y + dy);
+      if (o && o.alive) applyDamage(st, o, st.rng.int(lo, hi), null, { pierce: true });
+    }
+  }
   if (source && source.side !== target.side) {
     source.kills++;
     if (st.relics.has('whistle') && source.side === 'player') addStatus(source, 'hasted', 2, 0);
@@ -546,21 +561,31 @@ export function moveUnit(st, u, tx, ty) {
   return true;
 }
 
+function pushDuel(st, u, target, roll) {
+  if (target.structure) return;
+  st.fx.push({ kind: 'duel', t: 0,
+    a: { defId: u.defId, custom: u.custom, boss: u.boss },
+    d: { defId: target.defId, custom: target.custom, boss: target.boss },
+    aSide: u.side, dmg: roll, kill: target.hp - roll <= 0 });
+}
+
 export function basicAttack(st, u, target) {
   if (u.usesLoad && !u.loaded) return { ok: false, why: 'not loaded' };
   if (u.usesLoad) st.fx.push({ kind: 'snd', s: 'bow' });
   if (u.isCaptain && u.custom && u.custom.weapon) {
-    const ws = { maul: 'heavy', knife: 'pierce', staff: 'fire', shield: 'thunk', pole: 'sweep' }[u.custom.weapon];
+    const ws = { maul: 'heavy', knife: 'pierce', staff: 'fire', shield: 'thunk', pole: 'sweep', bow: 'bow' }[u.custom.weapon];
     if (ws) st.fx.push({ kind: 'snd', s: ws });
   }
   if (u.range > 1 && Math.abs(u.x - target.x) + Math.abs(u.y - target.y) > 1) {
-    st.fx.push({ kind: 'trace', x1: u.x, y1: u.y, x2: target.x, y2: target.y, col: '#d8c9a3', t: 0 });
+    st.fx.push({ kind: 'trace', x1: u.x, y1: u.y, x2: target.x, y2: target.y,
+      col: (u.isCaptain && u.custom && u.custom.weapon === 'staff') ? '#b08ad0' : '#d8c9a3', t: 0 });
   } else {
     st.fx.push({ kind: 'slash', x: target.x, y: target.y, dx: Math.sign(target.x - u.x), dy: Math.sign(target.y - u.y), t: 0 });
   }
   animLunge(u, target.x, target.y);
   const prof = damageProfile(st, u, target, {});
   const roll = st.rng.int(prof.min, prof.max);
+  pushDuel(st, u, target, roll);
   applyDamage(st, target, roll, u, {});
   if (st.relics.has('oil') && u.side === 'player' && !target.structure && target.alive) {
     addStatus(target, 'burning', 2, 3);
@@ -589,12 +614,13 @@ export function finishAction(st, u) {
   checkOver(st);
 }
 
-export function abilityReady(u, aid) {
+export function abilityReady(u, aid, st) {
   const ab = ABILITIES[aid];
   if (!ab) return false; // the captain has one ability; hotkey [2] asks for a second
   if ((u.cds[aid] || 0) > 0) return false;
   if (ab.charges && (u.charges[aid] || 0) <= 0) return false;
   if (ab.needsLoad && u.usesLoad && !u.loaded && !u.freeShot) return false;
+  if (st && ab.mana && u.side === 'player' && st.mana < ab.mana) return false;
   return true;
 }
 
@@ -632,6 +658,7 @@ export function useAbility(st, u, aid, tx, ty, dir) {
   if (!ab) return { ok: false };
   const res = resolveAbility(st, u, aid, ab, tx, ty, dir);
   u.cds[aid] = ab.cd;
+  if (ab.mana && u.side === 'player') st.mana = Math.max(0, st.mana - ab.mana);
   if (ab.charges) u.charges[aid] = (u.charges[aid] || 0) - 1;
   if (ab.needsLoad && u.usesLoad) {
     if (u.freeShot) u.freeShot = false; else u.loaded = false;
@@ -664,6 +691,7 @@ export function resolveAbility(st, u, aid, ab, tx, ty, dir) {
       animLunge(u, tx, ty);
       const prof = damageProfile(st, u, tgt, { dmg: ab.dmg, pierce: ab.pierce });
       const roll = st.rng.int(prof.min, prof.max);
+      pushDuel(st, u, tgt, roll);
       applyDamage(st, tgt, roll, u, { pierce: ab.pierce });
       if (ab.status && tgt.alive) addStatus(tgt, ab.status, ab.dur, ab.val);
       logLine(st, u.name + ' uses ' + ab.name + ' for ' + roll + '.');
@@ -698,7 +726,7 @@ export function resolveAbility(st, u, aid, ab, tx, ty, dir) {
     }
     case 'heal': {
       if (!target) return;
-      const bonus = st.relics.has('tourniquet') ? 4 : 0;
+      const bonus = st.relics.has('tourniquet') && u.side === 'player' ? 4 : 0;
       const amt = st.rng.int(ab.amount[0], ab.amount[1]) + bonus;
       const before = target.hp;
       target.hp = Math.min(target.maxHp, target.hp + amt);
@@ -945,8 +973,15 @@ function aiTakeTurn(st, u) {
     if (best.s.x !== u.x || best.s.y !== u.y) moveUnit(st, u, best.s.x, best.s.y);
     const target = st.units.find(t => t.uid === best.f.uid);
     if (target && target.alive) {
+      animLunge(u, target.x, target.y);
+      if (u.range > 1 && Math.abs(u.x - target.x) + Math.abs(u.y - target.y) > 1) {
+        st.fx.push({ kind: 'trace', x1: u.x, y1: u.y, x2: target.x, y2: target.y, col: '#c9b193', t: 0 });
+      } else {
+        st.fx.push({ kind: 'slash', x: target.x, y: target.y, dx: Math.sign(target.x - u.x), dy: Math.sign(target.y - u.y), t: 0 });
+      }
       const prof = damageProfile(st, u, target, {});
       const roll = st.rng.int(prof.min, prof.max);
+      pushDuel(st, u, target, roll);
       applyDamage(st, target, roll, u, {});
       logLine(st, u.name + ' hits ' + target.name + ' for ' + roll + '.');
     }
@@ -1108,6 +1143,50 @@ function tryAbility(st, u, aid, ab, foes) {
       if (live > 5) return false;
       useAbilityAI(st, u, aid, ab, u.x, u.y);
       return true;
+    }
+    case 'e_lob': {
+      // arcs over walls: pure clustering punishment, no LOS needed
+      let best = null;
+      for (const f of foes) {
+        const d = Math.abs(u.x - f.x) + Math.abs(u.y - f.y);
+        if (d > ab.range) continue;
+        if (Math.max(Math.abs(u.x - f.x), Math.abs(u.y - f.y)) <= 1) continue; // not into its own blast
+        let n = 0;
+        for (const g of foes) if (Math.abs(g.x - f.x) <= 1 && Math.abs(g.y - f.y) <= 1) n++;
+        if (!best || n > best.n) best = { n, f };
+      }
+      if (!best) return false;
+      const tiles = [];
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        if (inBounds(best.f.x + dx, best.f.y + dy)) tiles.push({ x: best.f.x + dx, y: best.f.y + dy });
+      }
+      u.windup = { aid, ab, tiles };
+      st.fx.push({ kind: 'snd', s: 'warn' });
+      u.cds[aid] = ab.cd;
+      logLine(st, u.name + ' lights a fuse.');
+      return true;
+    }
+    case 'e_mend': {
+      // sing the most wounded nearby ally back up; step toward one if needed
+      const hurt = st.units.filter(o => o.alive && o.side === 'enemy' && o !== u && o.hp <= o.maxHp - 6)
+        .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
+      for (const o of hurt) {
+        if (Math.abs(u.x - o.x) + Math.abs(u.y - o.y) <= ab.range && hasLOS(st, u.x, u.y, o.x, o.y)) {
+          useAbilityAI(st, u, aid, ab, o.x, o.y);
+          return true;
+        }
+      }
+      if (hurt.length) {
+        // walk toward the worst-off ally, then hold
+        const t = hurt[0];
+        const spots = reachableTiles(st, u).sort((a, b) =>
+          (Math.abs(a.x - t.x) + Math.abs(a.y - t.y)) - (Math.abs(b.x - t.x) + Math.abs(b.y - t.y)));
+        if (spots.length && (Math.abs(spots[0].x - t.x) + Math.abs(spots[0].y - t.y)) < (Math.abs(u.x - t.x) + Math.abs(u.y - t.y))) {
+          moveUnit(st, u, spots[0].x, spots[0].y);
+          return true;
+        }
+      }
+      return false;
     }
     case 'e_drag': {
       const cands = foes.filter(f => {

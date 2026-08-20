@@ -73,10 +73,9 @@ function place(step) {
   const c = $('coach');
   const battle = $('battle');
   const side = $('side');
-  if (battle && side) {
-    // sit just below the ability panel, clamped to the stage
-    c.style.top = '86px';
-  }
+  // Bottom-docked: covering the Attack button while saying "press Attack"
+  // was the first thing the playtest caught.
+  c.style.top = '';
   if (pulsed) { pulsed.classList.remove('pulseTarget'); pulsed = null; }
   if (step.anchor && step.anchor !== 'board') {
     const el = $(step.anchor);
@@ -104,8 +103,8 @@ function buildSteps() {
   return [
     {
       title: 'Set the line', anchor: 'party',
-      text: 'This is your whole company: <b>you</b>. Everyone else is somewhere below, '
-        + 'still alive, and three of them will offer to join after every fight you win.<br><br>'
+      text: 'This is your whole company: <b>you</b>. The rest of it is chained in cells '
+        + 'all over these levels — look for <b>Prisoner</b> stops on the map to grow the company.<br><br>'
         + 'Before a fight starts you can place yourself: <b>click your captain, then click a lit tile</b>.',
     },
     {

@@ -418,6 +418,15 @@ input[type=text]:focus { outline: none; border-color: var(--torch); }
 .originOpt.on { border-color: var(--gold); background: linear-gradient(#2e2515, #201a0c); }
 .originOpt b { font-weight: 400; font-size: 12.5px; color: var(--bone); display: block; }
 .originOpt span { font-size: 10.5px; color: var(--gold); }
+.callingRow { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.callingOpt {
+  text-align: left; padding: 6px 9px; line-height: 1.25; border: 1px solid var(--rule);
+  background: linear-gradient(180deg, var(--stone2), var(--stone)); cursor: pointer;
+}
+.callingOpt:hover { border-color: var(--rule2); }
+.callingOpt.on { border-color: var(--torch); background: linear-gradient(#3a2413, #241708); }
+.callingOpt b { font-weight: 400; font-size: 12.5px; color: var(--bone); display: block; }
+.callingOpt span { font-size: 10px; color: var(--ink-dim); line-height: 1.3; }
 .spellGroup { font-size: 9.5px; letter-spacing: .28em; text-transform: uppercase; margin: 4px 0 1px; grid-column: 1 / -1; }
 #presetRow button.on { border-color: var(--torch); color: #f2dcbc; background: linear-gradient(#3a2413, #241708); }
 #portraitBox { cursor: pointer; }
@@ -434,7 +443,7 @@ input[type=text]:focus { outline: none; border-color: var(--torch); }
 
 /* ------------------------------------------------------------- tutorial */
 #coach {
-  position: absolute; z-index: 60; left: 842px; width: 448px; display: none;
+  position: absolute; z-index: 60; left: 842px; width: 448px; bottom: 46px; display: none;
   background: linear-gradient(180deg, #241c13, #14100c);
   border: 1px solid var(--torch-d); padding: 14px 16px;
   box-shadow: 0 12px 40px rgba(0,0,0,.7);
@@ -517,7 +526,7 @@ input[type=text]:focus { outline: none; border-color: var(--torch); }
     </div>
     <div class="row">
       <button id="btnStart" class="primary">Go Down</button>
-      <button id="btnMuster">The Roster</button>
+      <button id="btnMuster">Unlocks</button>
       <button id="btnSettings">Settings</button>
     </div>
     <div class="hint" id="titleStats"></div>
@@ -528,6 +537,7 @@ input[type=text]:focus { outline: none; border-color: var(--torch); }
     <div id="mapBar">
       <h2 class="hd" style="flex:0 0 auto" id="floorName">THE BREACH</h2>
       <div class="stat">Gold <span id="goldNum">0</span></div>
+      <div class="stat">Mana <span id="manaNum" style="color:#8fb4d8">0</span></div>
       <div class="stat">Tallies <span id="tallyNum">0</span></div>
       <div id="relicStrip"></div>
       <button id="btnAbandon" style="margin-left:auto">Abandon the dig</button>
@@ -561,6 +571,10 @@ input[type=text]:focus { outline: none; border-color: var(--torch); }
         </div>
       </div>
       <div class="creatorCol">
+        <div class="panel">
+          <div class="eyebrow">Calling</div>
+          <div class="callingRow" id="callingRow"></div>
+        </div>
         <div class="panel">
           <div class="eyebrow">Allotment <span id="pointsLeft" style="float:right"></span></div>
           <div class="optRow" id="presetRow" style="margin-bottom:9px"></div>
